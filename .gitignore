@@ -3,6 +3,7 @@
 *.test
 *.out
 /leave-management
+/bin/
 /tmp/
 
 # Node / Vite

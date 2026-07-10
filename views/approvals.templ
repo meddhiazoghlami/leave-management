@@ -1,0 +1,73 @@
+package views
+
+import (
+	"strconv"
+
+	"github.com/dzovi/leave-management/internal/db"
+)
+
+templ ApprovalsPage(d ApprovalsData) {
+	@Layout(d.Nav) {
+		<div class="mb-6">
+			<h1 class="text-2xl font-bold">Approvals</h1>
+			<p class="text-sm text-slate-500">Pending requests from your team.</p>
+		</div>
+		<div id="approval-list" class="space-y-3">
+			@ApprovalRows(d.Pending)
+		</div>
+	}
+}
+
+// ApprovalRows is both the initial render and (potentially) a re-render target.
+templ ApprovalRows(pending []db.ListPendingForManagerRow) {
+	if len(pending) == 0 {
+		<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-400">
+			Nothing to approve right now.
+		</div>
+	} else {
+		for _, r := range pending {
+			@approvalCard(r)
+		}
+	}
+}
+
+// approvalCard: Approve/Reject POST via HTMX and swap the card out (server
+// returns an empty body), plus a toast. `closest [data-request]` targets this
+// card without needing a per-row id.
+templ approvalCard(r db.ListPendingForManagerRow) {
+	<div data-request class="bg-white rounded-2xl border border-slate-200 p-5 flex items-center justify-between gap-4">
+		<div>
+			<div class="flex items-center gap-2">
+				@colorDot(r.LeaveTypeColor)
+				<span class="font-medium text-slate-800">{ r.EmployeeName }</span>
+				<span class="text-sm text-slate-400">· { r.LeaveTypeName }</span>
+			</div>
+			<div class="mt-1 text-sm text-slate-600">
+				{ fmtRange(r.StartDate, r.EndDate) } · { strconv.FormatInt(int64(r.WorkingDays), 10) } day(s)
+			</div>
+			if r.Reason != "" {
+				<div class="mt-1 text-sm text-slate-400 italic">"{ r.Reason }"</div>
+			}
+		</div>
+		<div class="flex gap-2 shrink-0">
+			<button
+				type="button"
+				hx-post={ "/approvals/" + strconv.FormatInt(r.ID, 10) + "/reject" }
+				hx-target="closest [data-request]"
+				hx-swap="outerHTML"
+				class="rounded-lg border border-slate-200 text-sm px-3 py-1.5 text-slate-600 hover:bg-rose-50 hover:text-rose-700"
+			>
+				Reject
+			</button>
+			<button
+				type="button"
+				hx-post={ "/approvals/" + strconv.FormatInt(r.ID, 10) + "/approve" }
+				hx-target="closest [data-request]"
+				hx-swap="outerHTML"
+				class="rounded-lg bg-emerald-600 text-white text-sm px-3 py-1.5 hover:bg-emerald-500"
+			>
+				Approve
+			</button>
+		</div>
+	</div>
+}

@@ -1,0 +1,67 @@
+package views
+
+import "strconv"
+
+// CalendarPage is the Alpine shell: it tracks the displayed year/month and
+// renders the current month server-side for first paint. Prev/next mutate the
+// Alpine state and call window.htmx.ajax to swap in a new #cal-grid — Alpine for
+// UI state, HTMX for the data.
+templ CalendarPage(d CalendarData) {
+	@Layout(d.Nav) {
+		<div x-data={ calAlpine(d.Year, d.Month) }>
+			<div class="flex items-center justify-between mb-6">
+				<h1 class="text-2xl font-bold" x-text="label()"></h1>
+				<div class="flex gap-2">
+					<button type="button" @click="prev()" class="rounded-lg border border-slate-200 w-9 h-9 text-slate-600 hover:bg-slate-100">‹</button>
+					<button type="button" @click="next()" class="rounded-lg border border-slate-200 w-9 h-9 text-slate-600 hover:bg-slate-100">›</button>
+				</div>
+			</div>
+			<div id="cal-grid">
+				@CalendarMonth(d)
+			</div>
+		</div>
+	}
+}
+
+// CalendarMonth is the swappable grid fragment (no page chrome).
+templ CalendarMonth(d CalendarData) {
+	<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden border-r-0 border-b-0">
+		<div class="grid grid-cols-7 bg-slate-50 text-xs font-medium text-slate-400 uppercase">
+			for _, wd := range []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"} {
+				<div class="px-2 py-2 text-center border-r border-slate-100">{ wd }</div>
+			}
+		</div>
+		for _, week := range d.Weeks {
+			<div class="grid grid-cols-7">
+				for _, day := range week {
+					@calCell(day)
+				}
+			</div>
+		}
+	</div>
+}
+
+templ calCell(day CalDay) {
+	<div class={ "min-h-[92px] border-t border-r border-slate-100 p-1.5 text-xs", templ.KV("bg-slate-50/60", !day.InMonth) }>
+		<div class="flex items-center justify-between">
+			<span
+				class={ "font-medium w-5 h-5 inline-flex items-center justify-center",
+					templ.KV("text-slate-300", !day.InMonth),
+					templ.KV("text-slate-700", day.InMonth && !day.IsToday),
+					templ.KV("bg-indigo-600 text-white rounded-full", day.IsToday) }
+			>
+				{ strconv.Itoa(day.Date.Day()) }
+			</span>
+			if day.Holiday != "" {
+				<span class="text-[10px] font-medium text-rose-500" title={ day.Holiday }>hol</span>
+			}
+		</div>
+		<div class="mt-1 space-y-0.5">
+			for _, e := range day.Entries {
+				<div class="truncate rounded px-1 py-0.5 text-white text-[10px]" style={ "background-color:" + e.Color } title={ e.Employee + " · " + e.Type }>
+					{ e.Employee }
+				</div>
+			}
+		</div>
+	</div>
+}

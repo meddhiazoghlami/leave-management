@@ -1,55 +1,115 @@
 package views
 
-import "github.com/dzovi/leave-management/assets"
+import (
+	"strconv"
 
-templ Layout(title string) {
+	"github.com/dzovi/leave-management/assets"
+)
+
+// head is shared by the app layout and the standalone login page so the Vite
+// asset wiring (Phase 8) lives in exactly one place.
+templ head(title string) {
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ title } · Leave Management</title>
+		// Phase 8: assets come from Vite. In dev this points at the Vite dev
+		// server (HMR); in prod it's the hashed bundle from the manifest.
+		if assets.Dev {
+			<script type="module" src={ assets.Client() }></script>
+		}
+		for _, href := range assets.Styles("src/app.js") {
+			<link rel="stylesheet" href={ href }/>
+		}
+		<script type="module" src={ assets.Entry("src/app.js") }></script>
+	</head>
+}
+
+// Layout is the authenticated chrome: header nav (role-aware) + toast host +
+// content slot. Unauthenticated pages (login) use a bare shell instead.
+templ Layout(nav Nav) {
 	<!DOCTYPE html>
 	<html lang="en">
-		<head>
-			<meta charset="UTF-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1"/>
-			<title>{ title }</title>
-			// Phase 8: assets come from Vite, not CDNs. In dev this points at the
-			// Vite dev server (HMR); in prod it's the hashed bundle from the manifest.
-			if assets.Dev {
-				<script type="module" src={ assets.Client() }></script>
-			}
-			for _, href := range assets.Styles("src/app.js") {
-				<link rel="stylesheet" href={ href }/>
-			}
-			<script type="module" src={ assets.Entry("src/app.js") }></script>
-		</head>
-		<body class="min-h-screen bg-slate-50 font-sans antialiased flex flex-col">
+		@head(nav.Title)
+		<body class="min-h-screen bg-slate-50 font-sans antialiased text-slate-900">
+			@toastHost()
 			<header class="border-b border-slate-200 bg-white">
-				<nav class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-					<span class="text-sm font-semibold text-slate-900">Leave Management</span>
-					<div x-data="{ open: false }" class="relative">
-						<button
-							@click="open = !open"
-							class="inline-flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-slate-900"
-						>
-							Menu
-							<svg class="w-4 h-4" :class="{ 'rotate-180': open }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-								<path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
-							</svg>
-						</button>
-						<div
-							x-show="open"
-							@click.outside="open = false"
-							x-transition.opacity
-							class="absolute right-0 mt-2 w-40 rounded-lg border border-slate-200 bg-white shadow-lg py-1 z-10"
-							style="display: none"
-						>
-							<a href="/hello" class="block px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Home</a>
-							<a href="#" class="block px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">About</a>
-							<a href="#" class="block px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Sign out</a>
+				<nav class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+					<div class="flex items-center gap-1">
+						<span class="mr-3 text-sm font-semibold">Leave&nbsp;Management</span>
+						@navLink("/", "Dashboard", "dashboard", nav.Active)
+						@navLink("/requests", "My Requests", "requests", nav.Active)
+						@navLink("/calendar", "Calendar", "calendar", nav.Active)
+						if nav.IsManager() {
+							<a
+								href="/approvals"
+								class={ "px-3 py-2 rounded-md text-sm font-medium inline-flex items-center gap-2",
+									templ.KV("bg-slate-900 text-white", nav.Active == "approvals"),
+									templ.KV("text-slate-600 hover:text-slate-900 hover:bg-slate-100", nav.Active != "approvals") }
+							>
+								Approvals
+								if nav.PendingCount > 0 {
+									<span class="inline-flex items-center justify-center rounded-full bg-rose-500 text-white text-xs px-1.5 min-w-[1.25rem]">
+										{ strconv.FormatInt(nav.PendingCount, 10) }
+									</span>
+								}
+							</a>
+							@navLink("/employees", "Team", "employees", nav.Active)
+						}
+						if nav.IsAdmin() {
+							@navLink("/admin", "Admin", "admin", nav.Active)
+						}
+					</div>
+					<div class="flex items-center gap-3">
+						<div class="text-right leading-tight">
+							<div class="text-sm font-medium">{ nav.Name }</div>
+							<div class="text-xs text-slate-400 capitalize">{ nav.Role }</div>
 						</div>
+						<form method="post" action="/logout">
+							<button type="submit" class="text-sm text-slate-500 hover:text-slate-900 border border-slate-200 rounded-md px-3 py-1.5">
+								Sign out
+							</button>
+						</form>
 					</div>
 				</nav>
 			</header>
-			<div class="flex-1 flex items-center justify-center">
+			<main class="max-w-5xl mx-auto px-4 py-8">
 				{ children... }
-			</div>
+			</main>
 		</body>
 	</html>
+}
+
+// navLink renders one header link, highlighted when its key is the active page.
+templ navLink(href, label, key, active string) {
+	<a
+		href={ templ.SafeURL(href) }
+		class={ "px-3 py-2 rounded-md text-sm font-medium",
+			templ.KV("bg-slate-900 text-white", key == active),
+			templ.KV("text-slate-600 hover:text-slate-900 hover:bg-slate-100", key != active) }
+	>
+		{ label }
+	</a>
+}
+
+// toastHost is a fixed, top-right stack driven entirely by Alpine. Handlers fire
+// toasts by returning an `HX-Trigger: {"toast":{...}}` response header; HTMX
+// dispatches a `toast` event whose detail this component listens for on window.
+templ toastHost() {
+	<div
+		x-data="{ toasts: [] }"
+		x-on:toast.window="const id=Date.now()+Math.random(); toasts.push({id, message:$event.detail.message, type:$event.detail.type||'success'}); setTimeout(()=>{ toasts=toasts.filter(t=>t.id!==id) }, 4000)"
+		class="fixed top-4 right-4 z-50 flex flex-col gap-2 w-80"
+	>
+		<template x-for="t in toasts" :key="t.id">
+			<div
+				x-transition
+				class="rounded-lg shadow-lg px-4 py-3 text-sm text-white flex items-start justify-between gap-3"
+				:class="t.type==='error' ? 'bg-rose-600' : 'bg-emerald-600'"
+			>
+				<span x-text="t.message"></span>
+				<button type="button" @click="toasts=toasts.filter(x=>x.id!==t.id)" class="opacity-80 hover:opacity-100">✕</button>
+			</div>
+		</template>
+	</div>
 }

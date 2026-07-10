@@ -1,0 +1,78 @@
+package views
+
+import "strconv"
+
+templ EmployeesPage(d EmployeesData) {
+	@Layout(d.Nav) {
+		<div class="mb-6">
+			<h1 class="text-2xl font-bold">Team</h1>
+			<p class="text-sm text-slate-500">
+				if d.Nav.IsAdmin() {
+					All employees.
+				} else {
+					Your direct reports.
+				}
+			</p>
+		</div>
+		<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+			<table class="w-full">
+				<thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
+					<tr>
+						<th class="px-5 py-3 font-medium">Name</th>
+						<th class="px-5 py-3 font-medium">Email</th>
+						<th class="px-5 py-3 font-medium">Role</th>
+						<th class="px-5 py-3 font-medium">Manager</th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(d.Employees) == 0 {
+						<tr>
+							<td colspan="4" class="px-5 py-8 text-center text-sm text-slate-400">No employees.</td>
+						</tr>
+					} else {
+						for _, e := range d.Employees {
+							<tr class="border-t border-slate-100 hover:bg-slate-50">
+								<td class="px-5 py-3">
+									<a href={ templ.SafeURL("/employees/" + strconv.FormatInt(e.ID, 10)) } class="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+										{ e.Name }
+									</a>
+								</td>
+								<td class="px-5 py-3 text-sm text-slate-600">{ e.Email }</td>
+								<td class="px-5 py-3 text-sm text-slate-600 capitalize">{ e.Role }</td>
+								<td class="px-5 py-3 text-sm text-slate-500">{ orDash(e.ManagerName) }</td>
+							</tr>
+						}
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+templ EmployeeProfilePage(d EmployeeProfileData) {
+	@Layout(d.Nav) {
+		<div class="mb-6 text-sm text-slate-400">
+			<a href="/employees" class="hover:text-slate-600">← Team</a>
+		</div>
+		<div class="mb-8">
+			<h1 class="text-2xl font-bold">{ d.Employee.Name }</h1>
+			<p class="text-sm text-slate-500">
+				{ d.Employee.Email } · <span class="capitalize">{ d.Employee.Role }</span>
+			</p>
+		</div>
+		<section class="mb-8">
+			<h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Balances</h2>
+			@balanceCards(d.Balances)
+		</section>
+		<section>
+			<h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Requests</h2>
+			<div class="bg-white rounded-2xl border border-slate-200 p-4">
+				<table class="w-full">
+					<tbody>
+						@requestRows(d.Requests, false)
+					</tbody>
+				</table>
+			</div>
+		</section>
+	}
+}

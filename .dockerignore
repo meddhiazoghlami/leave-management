@@ -1,0 +1,17 @@
+# Keep the build context small and reproducible. Assets are rebuilt inside the
+# image, so the host's public/build and node_modules must never be copied in.
+.git
+.gitignore
+.claude
+.dockerignore
+Dockerfile
+docker-compose.yml
+bin/
+tmp/
+public/build/
+web/node_modules/
+docs/
+*.md
+.DS_Store
+.env
+.env.*
