@@ -16,7 +16,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 
 	ctx := context.Background()
 	st, err := store.New(ctx, cfg.DatabaseURL)

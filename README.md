@@ -98,6 +98,7 @@ public/build/               Vite output (gitignored; regenerate with npm run bui
 Makefile                    Common tasks — run `make help`
 Dockerfile                  Multi-stage build (assets → binaries → alpine runtime)
 docker-compose.yml          Prod-like stack: db + migrations + app (+ seed profile)
+.env.example                Config template — copy to .env (gitignored, auto-loaded)
 docs/learning/              Learning roadmap & per-phase write-ups (phases, learning, project)
 ```
 
@@ -208,14 +209,15 @@ The seed also creates leave types **Annual (25 days)**, **Sick (12)**, **Unpaid 
 ### Fast path (Make)
 
 ```bash
-make db-docker    # start Postgres 16 in Docker and create the database
-make setup        # install deps, run migrations, seed data, build assets
-make run          # serve on http://localhost:8080
+cp .env.example .env    # config (the app has NO built-in DATABASE_URL default)
+make db-docker          # start Postgres 16 in Docker and create the database
+make setup              # install deps, run migrations, seed data, build assets
+make run                # serve on http://localhost:8080
 ```
 
 `make help` lists every target. Then open **http://localhost:8080** and log in (see [test users](#test-users)).
 
-The app defaults to `postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable`; override with `DATABASE_URL` (e.g. `make migrate-up DATABASE_URL=...`).
+Configuration comes from the environment or a local `.env` (auto-loaded by the app and by `make`). **`DATABASE_URL` is required** — the app exits with an error if it's unset; there is no hardcoded fallback.
 
 ### Step by step (what `make setup` runs under the hood)
 
@@ -224,7 +226,7 @@ The app defaults to `postgres://postgres:postgres@localhost:5432/leave_managemen
 docker run --name leave-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
 docker exec -it leave-pg createdb -U postgres leave_management
 
-# 2. Point at the database
+# 2. Point at the database — or `cp .env.example .env` (the app auto-loads it)
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable"
 
 # 3. Apply migrations  (make migrate-up)
@@ -275,11 +277,11 @@ Credentials and ports default to `postgres` / `leave_management` / `8080` and ar
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable` | pgx connection string |
+| `DATABASE_URL` | **required** (no default) | pgx connection string; the app exits if unset |
 | `ADDR` | `:8080` | listen address |
 | `VITE_DEV` | *(unset)* | `true` → serve assets from the Vite dev server (HMR) instead of the built bundle |
 
-Sessions last 7 days (constant in `internal/config`).
+Values are read from the environment or a local `.env` file — copy `.env.example` to `.env` to get started. `.env` is auto-loaded (via `godotenv`) and gitignored, so it never lands in version control or the Docker image; real deployments inject the environment directly. Sessions last 7 days (constant in `internal/config`).
 
 ---
 

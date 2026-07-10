@@ -1,9 +1,13 @@
 # Leave Management — common tasks. Run `make` (or `make help`) to list targets.
 
-# Overridable config (e.g. `make migrate-up DATABASE_URL=...`)
-DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable
-MIGRATIONS   := sql/migrations
-BIN          := bin/leave-management
+# Load a local .env (KEY=value, unquoted) if present and export its vars to
+# recipes, so `make migrate-up` picks up DATABASE_URL just like the app does.
+# No hardcoded fallback — an unset DATABASE_URL makes the migrate/DB targets fail.
+-include .env
+export
+
+MIGRATIONS := sql/migrations
+BIN        := bin/leave-management
 
 .DEFAULT_GOAL := help
 
