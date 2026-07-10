@@ -1,0 +1,101 @@
+package views
+
+import (
+	"strconv"
+
+	"github.com/dzovi/leave-management/internal/db"
+)
+
+templ AdminPage(d AdminData) {
+	@Layout(d.Nav) {
+		<div class="mb-6">
+			<h1 class="text-2xl font-bold">Admin</h1>
+			<p class="text-sm text-slate-500">Manage leave types, allocations, and public holidays.</p>
+		</div>
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<section class="bg-white rounded-2xl border border-slate-200 p-5">
+				<h2 class="font-semibold mb-3">Leave types</h2>
+				<ul id="leave-type-list" class="divide-y divide-slate-100 mb-4">
+					@LeaveTypeRows(d.LeaveTypes)
+				</ul>
+				<form hx-post="/admin/leave-types" hx-target="#leave-type-list" hx-swap="innerHTML" hx-on::after-request="this.reset()" class="flex gap-2 items-end flex-wrap">
+					<input name="name" required placeholder="Name" class="flex-1 min-w-[8rem] rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					<input name="default_days" type="number" min="0" value="0" required title="Default days per year" class="w-20 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					<input name="color" type="color" value="#6366f1" title="Colour" class="h-9 w-12 rounded border border-slate-300 p-0.5"/>
+					<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500">Add</button>
+				</form>
+			</section>
+			<section class="bg-white rounded-2xl border border-slate-200 p-5">
+				<h2 class="font-semibold mb-3">Public holidays</h2>
+				<ul id="holiday-list" class="divide-y divide-slate-100 mb-4">
+					@HolidayRows(d.Holidays)
+				</ul>
+				<form hx-post="/admin/holidays" hx-target="#holiday-list" hx-swap="innerHTML" hx-on::after-request="this.reset()" class="flex gap-2 items-end flex-wrap">
+					<input name="name" required placeholder="Name" class="flex-1 min-w-[8rem] rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					<input name="holiday_date" type="date" required class="rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500">Add</button>
+				</form>
+			</section>
+			<section class="bg-white rounded-2xl border border-slate-200 p-5 lg:col-span-2">
+				<h2 class="font-semibold mb-1">Allocations ({ strconv.Itoa(d.Year) })</h2>
+				<p class="text-sm text-slate-500 mb-3">Set how many days an employee gets for a leave type this year.</p>
+				// No swap target: this form just persists and fires a toast.
+				<form hx-post="/admin/allocations" hx-swap="none" class="flex gap-2 items-end flex-wrap">
+					<div>
+						<label class="block text-xs text-slate-400 mb-1">Employee</label>
+						<select name="employee_id" required class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+							for _, e := range d.Employees {
+								<option value={ strconv.FormatInt(e.ID, 10) }>{ e.Name }</option>
+							}
+						</select>
+					</div>
+					<div>
+						<label class="block text-xs text-slate-400 mb-1">Leave type</label>
+						<select name="leave_type_id" required class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+							for _, t := range d.LeaveTypes {
+								<option value={ strconv.FormatInt(t.ID, 10) }>{ t.Name }</option>
+							}
+						</select>
+					</div>
+					<div>
+						<label class="block text-xs text-slate-400 mb-1">Days</label>
+						<input name="days" type="number" min="0" value="25" required class="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					</div>
+					<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500">Save</button>
+				</form>
+			</section>
+		</div>
+	}
+}
+
+templ LeaveTypeRows(types []db.LeaveType) {
+	if len(types) == 0 {
+		<li class="py-3 text-sm text-slate-400">No leave types yet.</li>
+	} else {
+		for _, t := range types {
+			<li class="py-2 flex items-center gap-2">
+				@colorDot(t.Color)
+				<span class="text-sm font-medium text-slate-800">{ t.Name }</span>
+				<span class="text-xs text-slate-400">· { strconv.FormatInt(int64(t.DefaultDays), 10) } days/yr default</span>
+			</li>
+		}
+	}
+}
+
+templ HolidayRows(holidays []db.PublicHoliday) {
+	if len(holidays) == 0 {
+		<li class="py-3 text-sm text-slate-400">No holidays yet.</li>
+	} else {
+		for _, h := range holidays {
+			<li class="py-2 flex items-center justify-between">
+				<div>
+					<span class="text-sm font-medium text-slate-800">{ h.Name }</span>
+					<span class="text-xs text-slate-400">· { fmtDate(h.HolidayDate) }</span>
+				</div>
+				<button type="button" hx-post={ "/admin/holidays/" + strconv.FormatInt(h.ID, 10) + "/delete" } hx-target="#holiday-list" hx-swap="innerHTML" class="text-xs text-slate-400 hover:text-rose-600">
+					Remove
+				</button>
+			</li>
+		}
+	}
+}

@@ -9,14 +9,20 @@ sql:
     gen:
       go:
         package: "db"
-        out: "db"
+        # Phase 9: the generated package moves under internal/ as part of the
+        # restructure. Everything else in the app imports it from there.
+        out: "internal/db"
         # Generate code against the pgx/v5 pool we already use (not database/sql).
         sql_package: "pgx/v5"
         emit_json_tags: false
         emit_empty_slices: true
         overrides:
-          # created_at is NOT NULL, so map timestamptz straight to time.Time
-          # instead of pgtype.Timestamptz — keeps the templ `.Format(...)` call
-          # and the rest of the app working with the standard library type.
+          # NOT NULL timestamptz/date columns map straight to time.Time instead
+          # of pgtype wrappers, so templ `.Format(...)` and Go date math just
+          # work. Nullable columns (manager_id, decided_by, decided_at) keep
+          # sqlc's pgtype defaults — and our queries avoid SELECTing the
+          # nullable timestamps so no NULL is ever scanned into a time.Time.
           - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "date"
             go_type: "time.Time"

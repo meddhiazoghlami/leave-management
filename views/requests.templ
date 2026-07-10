@@ -1,0 +1,102 @@
+package views
+
+import (
+	"strconv"
+
+	"github.com/dzovi/leave-management/internal/db"
+)
+
+templ RequestsPage(d RequestsData) {
+	@Layout(d.Nav) {
+		// The whole page shares one Alpine scope so the modal's open state and
+		// the "Request leave" button can talk to each other.
+		<div x-data="{ open: false }">
+			<div class="flex items-center justify-between mb-6">
+				<div>
+					<h1 class="text-2xl font-bold">My Requests</h1>
+					<p class="text-sm text-slate-500">Submit and track your leave.</p>
+				</div>
+				<button type="button" @click="open = true" class="rounded-lg bg-indigo-600 text-white text-sm font-medium px-4 py-2 hover:bg-indigo-500">
+					Request leave
+				</button>
+			</div>
+			<div class="bg-white rounded-2xl border border-slate-200 p-4">
+				<table class="w-full">
+					<thead>
+						<tr class="text-left text-xs uppercase tracking-wide text-slate-400">
+							<th class="pb-2 font-medium">Type</th>
+							<th class="pb-2 font-medium">Dates</th>
+							<th class="pb-2 font-medium">Days</th>
+							<th class="pb-2 font-medium">Status</th>
+							<th></th>
+						</tr>
+					</thead>
+					// HTMX swaps the fresh list into this tbody after submit/cancel.
+					<tbody id="request-list">
+						@requestRows(d.Requests, true)
+					</tbody>
+				</table>
+			</div>
+			@requestModal(d.LeaveTypes, d.Today)
+		</div>
+	}
+}
+
+// requestModal is the Alpine-controlled dialog. The form is HTMX: on a
+// successful submit the server returns the refreshed #request-list fragment and
+// fires a toast; the after-request hook resets the form and closes the modal
+// only when the request actually succeeded (so validation errors keep input).
+templ requestModal(leaveTypes []db.LeaveType, today string) {
+	<div
+		x-show="open"
+		x-transition.opacity
+		@keydown.escape.window="open = false"
+		class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4"
+		style="display: none"
+	>
+		<div @click.outside="open = false" class="w-full max-w-md bg-white rounded-2xl shadow-xl p-6">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">Request leave</h2>
+				<button type="button" @click="open = false" class="text-slate-400 hover:text-slate-600">✕</button>
+			</div>
+			<form
+				hx-post="/requests"
+				hx-target="#request-list"
+				hx-swap="innerHTML"
+				@htmx:after-request="if ($event.detail.successful) { $el.reset(); open = false }"
+				class="mt-4 space-y-4"
+			>
+				<div>
+					<label class="block text-sm font-medium text-slate-700">Leave type</label>
+					<select name="leave_type_id" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+						for _, t := range leaveTypes {
+							<option value={ strconv.FormatInt(t.ID, 10) }>{ t.Name }</option>
+						}
+					</select>
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<label class="block text-sm font-medium text-slate-700">From</label>
+						<input type="date" name="start_date" required min={ today } class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-slate-700">To</label>
+						<input type="date" name="end_date" required min={ today } class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					</div>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-slate-700">Reason <span class="text-slate-400">(optional)</span></label>
+					<textarea name="reason" rows="2" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></textarea>
+				</div>
+				<div class="flex justify-end gap-2 pt-2">
+					<button type="button" @click="open = false" class="rounded-lg border border-slate-200 text-sm px-4 py-2 text-slate-600 hover:bg-slate-50">
+						Cancel
+					</button>
+					<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm font-medium px-4 py-2 hover:bg-indigo-500">
+						Submit
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+}

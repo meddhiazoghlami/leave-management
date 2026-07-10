@@ -749,6 +749,130 @@ VITE_DEV=true go run .
 # after editing query.sql you still run `sqlc generate`.
 ```
 
+---
+
+## Phase 9 — Build the real Leave Management app (assemble the stack)
+
+**Diff from Phase 8:** *no new tool.* Everything before this proved one piece of tech in isolation on "hello dzovi" content. Phase 9 deletes the demo (`/hello`, `/greeting`, `/users`, and the `users` table) and uses the whole stack — Go/Gin/templ/Tailwind/HTMX/Alpine/Postgres/sqlc/Vite — on the real domain: employees, roles, leave requests, approvals, balances, a calendar, and admin. Two structural changes come with it: the flat `main.go` + `store` + `db` layout becomes `internal/` packages, and one genuinely new *concept* (not tool) lands — **cookie-session authentication**.
+
+### What "assembly" actually demanded
+
+A single feature in isolation needs almost no scaffolding. A real app needed all of this at once, and that's the lesson of the phase:
+
+- **Identity & access** — who are you (login), how do we remember it (sessions), what may you do (roles: employee / manager / admin).
+- **Authorization at every mutation** — not just "are you a manager" (middleware) but "is this *your* report" (per-request check in the handler).
+- **Structure** — one `main.go` with inline closures doesn't scale to ~15 routes; packages by concern do.
+- **Validation & error UX** — forms can be wrong; the server has to say so without losing the user's input.
+- **Seed & tests** — a real app is unusable empty and unmaintainable untested.
+
+### New concept: session auth (bcrypt + Postgres sessions)
+
+No new dependency beyond `golang.org/x/crypto/bcrypt`. The flow:
+
+1. **Login** (`POST /login`) — look up the employee by email, `bcrypt.CompareHashAndPassword` the submitted password. Same error message for "no such email" and "wrong password" so we don't leak which accounts exist.
+2. **Session** — mint a 256-bit `crypto/rand` token, insert a `sessions` row (`token`, `employee_id`, `expires_at`), and set it as an **HttpOnly, SameSite=Lax** cookie. State lives server-side; the cookie is just the key.
+3. **Middleware** (`RequireAuth`) — read the cookie, resolve token → employee in one query, stash the employee on the Gin context. No cookie → redirect before touching the DB (which is why the router test needs no database). `RequireRole(...)` composes on top for manager/admin routes.
+4. **Logout** — delete the session row and expire the cookie.
+
+The server-side session (vs a signed stateless cookie) means logout genuinely invalidates — verified: after `POST /logout`, reusing the old cookie 302s to `/login`.
+
+### Project structure (the restructure)
+
+```
+main.go                     thin bootstrap (config → store → assets → router → run)
+cmd/seed/main.go            re-runnable data seeder
+internal/
+  config/    env → typed Config
+  db/        sqlc-generated (moved here from ./db)
+  store/     pgx pool + domain methods (moved from ./store, expanded)
+  leave/     pure WorkingDays() calc  (+ unit test)
+  auth/      bcrypt, session token/cookie, RequireAuth / RequireRole
+  handlers/  one file per feature (auth, dashboard, requests, approvals, employees, calendar, admin)
+  server/    the routing table
+views/       templ components (stayed at root so Tailwind's @source keeps scanning)
+assets/      Vite bridge (unchanged from Phase 8)
+```
+
+The `store` stayed thin (delegations), but it now earns its keep: it's the one place that translates between plain Go types the handlers like (`int64`, `time.Time`) and the `pgtype` wrappers sqlc emits for NULL-able columns.
+
+### Domain model
+
+Six tables (`employees`, `sessions`, `leave_types`, `leave_allocations`, `leave_requests`, `public_holidays`) in one migration that also `DROP`s the demo `users` table. Choices worth recording:
+
+- **TEXT + CHECK for enums** (`role`, `status`), not native Postgres `ENUM`. sqlc maps both to plain Go `string`, but a CHECK is a one-line migration to change; a native enum needs `ALTER TYPE` (and historically couldn't run in a transaction). Cheaper to evolve.
+- **Working days snapshotted on the request.** Weekdays-minus-holidays is computed in Go at submit time and stored in `leave_requests.working_days`, so a later change to the holiday calendar can't retroactively resize an approved request.
+- **Balances are computed, not stored.** `ListBalances` LEFT JOINs allocation days against `SUM(working_days)` of approved requests for the year — one SQL query, no denormalized counter to keep in sync.
+
+### What changed in the code (diff)
+
+- **Deleted:** `views/{hello,greeting,users}.templ`, the `CreateUser`/`ListUsers` queries, the flat `db/` and `store/` dirs, and the inline demo handlers in `main.go`.
+- **`query.sql`** grew from 2 queries to ~25, grouped by area. New sqlc features leaned on: `sqlc.embed(e)` (session lookup returns a nested `Employee`), named params with casts (`@decided_by::bigint`, `@manager_id::bigint = 0 OR ...`) to control inferred Go types, and aggregate/`COALESCE` projections for balances.
+- **`views/`** went from 3 files to ~9, still a single flat `views` package. New: role-aware `Layout` nav with a pending-approval badge, a standalone `LoginPage`, an Alpine toast host, an Alpine modal + HTMX form for requests, a server-built calendar grid, and small shared components (`balanceCards`, `requestRows`, `statusBadge`, `colorDot`).
+- **`server/router.go`** — middleware *groups*: a `RequireAuth` group, a `RequireRole(manager, admin)` subgroup for approvals/team, and a `RequireRole(admin)` subgroup for `/admin`.
+- **`cmd/seed`** and three tests (pure `WorkingDays`, no-DB router redirect, DB-gated `ListBalances` round-trip).
+
+### What I observed
+
+- **sqlc respects nullability under a global override — the worry was unfounded.** The config maps `timestamptz`/`date` → `time.Time`, but sqlc still emitted `pgtype.Timestamptz` for the *nullable* `decided_at` and `pgtype.Int8` for `manager_id`/`decided_by`, while NOT NULL dates became clean `time.Time`. So the override is "for the non-null ones," exactly what you want, with no runtime NULL-scan panic.
+- **HTMX processes `HX-Trigger` even on a 4xx.** The submit-request handler returns `400` + an error-toast header on validation failure (end-before-start). Verified: the toast fires *and* HTMX doesn't swap the list — so the modal stays open with the user's input. That's the whole error-UX strategy in one response.
+- **The Alpine⇄HTMX seam is clean in both directions.** Toasts: the server sets `HX-Trigger: {"toast":{...}}`, HTMX dispatches a `toast` event, an Alpine component on the layout catches it on `window` and renders the stack. Calendar: Alpine owns the displayed month (client state, instant prev/next label) and calls `window.htmx.ajax()` to fetch the new grid — Alpine for ephemeral UI, HTMX for server data, the exact division the earlier phases set up.
+- **Roles + ownership both enforced.** Employee `sam` gets `403` on `/approvals` and `/admin` (middleware); a manager can only approve their own reports (per-request `canDecide` check), not by guessing an id.
+- **Balances math is right end-to-end.** Seeded a Mon–Wed request, approved it as the manager, and Sam's Annual balance showed **3 used / 25** — weekends correctly excluded, and untouched until *approval* (pending doesn't count).
+- **Tailwind purge still works after a big view expansion.** Nine templ files of utilities compiled to an **18.5KB** stylesheet (4.4KB gzip). Dynamic colors (leave-type hex) had to be inline `style=` since JIT can't see runtime values.
+
+### Value added
+
+1. **A real app, not a demo.** Every tool now pulls weight simultaneously: templ renders role-aware pages, HTMX swaps request rows and approval cards, Alpine runs the modal/toasts/calendar-nav, sqlc types every query, Postgres holds the truth, Vite ships the assets.
+2. **Security posture.** Hashed passwords, server-side sessions, HttpOnly/SameSite cookies, auth middleware, and defense-in-depth authorization (role *and* ownership).
+3. **Maintainable shape.** `internal/` packages by concern; adding a feature is "a query + a store method + a handler + a templ," each in an obvious place.
+4. **Confidence.** Business logic (`WorkingDays`) is a pure, tested function; the auth gate has a no-DB test; the query layer has an integration test.
+
+### Trade-offs / new pain
+
+- **The generation dance is now three-wide.** Change a query → `sqlc generate`; change a view → `templ generate`; change assets → `npm run build`. Miss one and you get a stale-code bug that compiles.
+- **Nullable columns are a papercut.** The `pgtype.Int8`/`.Valid` wrappers are correct but noisy; keeping them contained to the store layer took deliberate query design (`LEFT JOIN ... COALESCE`, SQL-side filtering) so handlers never see them.
+- **Auth I deliberately kept simple.** `Secure=false` on the cookie (fine for local http, must flip behind TLS), no CSRF token (SameSite=Lax is the only mitigation), no password reset / rate limiting / self-registration. Real, but not production-hardened.
+- **HTMX partial vs full-page is a constant small decision.** Every mutation is "return a fragment (and which target?) or redirect?" — approvals swap a card out, requests swap a tbody, allocations swap nothing (toast only). Powerful, but you decide the swap contract per endpoint.
+
+### Mental model — the finished stack
+
+| Layer | Owner | Reaches for |
+|---|---|---|
+| Identity / access | `internal/auth` | bcrypt, session cookie, `RequireAuth` / `RequireRole` |
+| Routing & HTTP | Gin + `internal/server` | middleware groups, one handler per route |
+| Document structure & data | templ | `views.DashboardPage(...)`, shared components |
+| Server-driven interactions | HTMX | `hx-post`, `hx-target`, `HX-Trigger`, `closest [data-request]` |
+| Client-only UI state | Alpine | modal `open`, toast stack, calendar month nav |
+| Business rules | plain Go (`internal/leave`) | `WorkingDays()` — pure, unit-tested |
+| DB access code | sqlc | `query.sql` → typed `db.Queries` (`sqlc.embed`, named casts) |
+| Persistence | Postgres | 6 tables, TEXT+CHECK enums, computed balances |
+| Assets | Vite | `npm run build` → hashed `public/build/` + manifest |
+
+**The stack is complete.** The checklist became a way of working: a new feature is a predictable walk down that table.
+
+### Commands cheat-sheet (additions)
+
+```bash
+# One-time / on schema change: apply migrations, then seed
+migrate -path migrations -database "$DATABASE_URL" up
+go run ./cmd/seed          # admin@ / manager@ / sam@…@acme.test, password "password"
+
+# Run (prod assets)
+cd web && npm run build && cd ..
+go run .                   # http://localhost:8080  → /login
+
+# Tests
+go test ./...                                          # unit + no-DB handler test
+TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/store/   # + sqlc integration test
+
+# The full regen loop when touching everything:
+#   sqlc generate   (query.sql / migrations changed)
+#   templ generate  (.templ changed)
+#   npm run build   (assets/new Tailwind classes)
+#   go build ./...
+```
+
+
 
 
 

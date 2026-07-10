@@ -1,0 +1,36 @@
+package views
+
+import "strconv"
+
+templ DashboardPage(d DashboardData) {
+	@Layout(d.Nav) {
+		<div class="space-y-8">
+			<div>
+				<h1 class="text-2xl font-bold">Welcome back, { d.Nav.Name }</h1>
+				<p class="text-sm text-slate-500">Here's your leave at a glance.</p>
+			</div>
+			if d.Nav.IsManager() && d.Nav.PendingCount > 0 {
+				<a href="/approvals" class="block rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100">
+					You have { strconv.FormatInt(d.Nav.PendingCount, 10) } request(s) awaiting your approval →
+				</a>
+			}
+			<section>
+				<h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Your balances</h2>
+				@balanceCards(d.Balances)
+			</section>
+			<section>
+				<div class="flex items-center justify-between mb-3">
+					<h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Recent requests</h2>
+					<a href="/requests" class="text-sm text-indigo-600 hover:text-indigo-500">View all →</a>
+				</div>
+				<div class="bg-white rounded-2xl border border-slate-200 p-4">
+					<table class="w-full">
+						<tbody>
+							@requestRows(d.Recent, false)
+						</tbody>
+					</table>
+				</div>
+			</section>
+		</div>
+	}
+}
