@@ -63,7 +63,7 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: *dburl
-    entrypoint: ["/app/seed"]
+    command: ["seed"]
     restart: "no"
 
 volumes:

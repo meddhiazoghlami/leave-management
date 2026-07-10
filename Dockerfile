@@ -15,8 +15,8 @@ RUN cd web && npm run build
 # -> /app/public/build (hashed JS/CSS + .vite/manifest.json)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2 — compile the Go binaries (server + seed). Fully static (CGO off) so
-# they run on a minimal base. Generated code (templ, sqlc) is committed, so no
+# Stage 2 — compile the Go binary. One static (CGO off) binary with `serve` and
+# `seed` subcommands (Cobra). Generated code (templ, sqlc) is committed, so no
 # codegen is needed here.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM golang:1.25-alpine AS build
@@ -24,8 +24,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server . \
- && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/seed ./cmd/seed
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/leave-management .
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3 — minimal runtime. Alpine (not distroless) so the image ships a
@@ -35,12 +34,13 @@ FROM alpine:3.20 AS runtime
 RUN apk add --no-cache ca-certificates tzdata \
  && adduser -D -u 10001 appuser
 WORKDIR /app
-COPY --from=build   /out/server        /app/server
-COPY --from=build   /out/seed          /app/seed
-COPY --from=assets  /app/public/build  /app/public/build
+COPY --from=build   /out/leave-management  /app/leave-management
+COPY --from=assets  /app/public/build      /app/public/build
 USER appuser
 EXPOSE 8080
 ENV ADDR=":8080"
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=5 \
 	CMD wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1
-ENTRYPOINT ["/app/server"]
+# Default to `serve`; the seed service overrides the command with `seed`.
+ENTRYPOINT ["/app/leave-management"]
+CMD ["serve"]

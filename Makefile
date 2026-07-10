@@ -40,7 +40,7 @@ db-docker: ## Start a Postgres 16 container and create the database
 
 .PHONY: run
 run: ## Run the server (expects assets already built)
-	go run .
+	go run . serve
 
 .PHONY: build
 build: generate assets ## Regenerate code, build assets, compile the binary to bin/
@@ -52,7 +52,7 @@ web-dev: ## Vite dev server with HMR (pair with `make serve-dev` in another term
 
 .PHONY: serve-dev
 serve-dev: ## Run Go in dev mode (assets served from the Vite dev server)
-	VITE_DEV=true go run .
+	VITE_DEV=true go run . serve
 
 # ---- Code generation ----
 
@@ -91,7 +91,7 @@ migrate-create: ## Create a new migration pair (usage: make migrate-create name=
 
 .PHONY: seed
 seed: ## Seed demo data (employees, leave types, holidays, sample requests)
-	go run ./cmd/seed
+	go run . seed
 
 # ---- Quality ----
 

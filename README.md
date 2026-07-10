@@ -13,6 +13,7 @@ It was built as a **progressive learning project** — each phase (0–8) introd
 | Layer | Technology | Notes |
 |---|---|---|
 | Language | **Go 1.25** | single binary |
+| CLI | **Cobra** | one binary, `serve` + `seed` subcommands |
 | HTTP | **Gin** | routing + middleware groups |
 | HTML templating | **templ** | type-safe Go components (`.templ` → generated `.go`) |
 | Styling | **Tailwind CSS v4** | utility-first, purged at build time |
@@ -76,14 +77,15 @@ Assets: Vite builds views' Tailwind classes + Alpine/HTMX into public/build/;
 ### Project layout
 
 ```
-main.go                     Thin bootstrap: config → store → assets → router → run
-cmd/seed/main.go            Re-runnable data seeder
+main.go                     Thin entrypoint → cli.Execute()
 internal/
+  cli/                      Cobra command tree (root, serve, seed)
   config/                   Environment → typed Config
   db/                       sqlc-generated queries + models (DO NOT EDIT)
   store/                    pgx pool + domain methods (wraps db.Queries)
   auth/                     bcrypt, session tokens/cookies, RequireAuth / RequireRole
   leave/                    Pure WorkingDays() business rule (+ unit test)
+  seed/                     Re-runnable demo-data seeder (used by `seed` command)
   handlers/                 HTTP handlers: auth, dashboard, requests, approvals,
                             employees, calendar, admin (+ router_test.go)
   server/                   Route table + middleware wiring
@@ -96,7 +98,7 @@ sqlc.yaml                   sqlc config (schema: sql/migrations, queries: sql/qu
 web/                        Vite project (package.json, vite.config.js, src/)
 public/build/               Vite output (gitignored; regenerate with npm run build)
 Makefile                    Common tasks — run `make help`
-Dockerfile                  Multi-stage build (assets → binaries → alpine runtime)
+Dockerfile                  Multi-stage build (assets → binary → alpine runtime)
 docker-compose.yml          Prod-like stack: db + migrations + app (+ seed profile)
 .env.example                Config template — copy to .env (gitignored, auto-loaded)
 docs/learning/              Learning roadmap & per-phase write-ups (phases, learning, project)
@@ -233,14 +235,16 @@ export DATABASE_URL="postgres://postgres:postgres@localhost:5432/leave_managemen
 migrate -path sql/migrations -database "$DATABASE_URL" up
 
 # 4. Seed demo data     (make seed)
-go run ./cmd/seed
+go run . seed
 
 # 5. Build assets → public/build/, gitignored  (make assets)
 ( cd web && npm install && npm run build )
 
 # 6. Run                (make run)
-go run .
+go run . serve
 ```
+
+The binary is a small Cobra CLI: `go run . --help` lists the `serve` and `seed` subcommands (`go run . serve`, `go run . seed`).
 
 ### Development mode (Vite HMR)
 
