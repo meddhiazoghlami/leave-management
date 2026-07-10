@@ -4,8 +4,8 @@ sql:
     # sqlc reads the golang-migrate files as the schema: it applies the *.up.sql
     # migrations in order and ignores the *.down.sql ones. Same source of truth
     # as the running database — no separate schema file to drift.
-    schema: "migrations"
-    queries: "query.sql"
+    schema: "sql/migrations"
+    queries: "sql/queries"
     gen:
       go:
         package: "db"

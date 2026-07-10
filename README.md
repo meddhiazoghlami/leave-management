@@ -2,7 +2,7 @@
 
 A small but complete **employee leave-management** web app: employees request leave, managers approve or reject, balances are tracked per leave type, and there's a team calendar and an admin area for leave types, allocations, and public holidays.
 
-It was built as a **progressive learning project** — each phase (0–8) introduced exactly one piece of the stack on "hello dzovi" demos, and **Phase 9** assembles all of it into this real app. See [`phases.md`](phases.md) for the roadmap and [`learning.md`](learning.md) for the per-phase write-ups.
+It was built as a **progressive learning project** — each phase (0–8) introduced exactly one piece of the stack on "hello dzovi" demos, and **Phase 9** assembles all of it into this real app. See [`docs/learning/phases.md`](docs/learning/phases.md) for the roadmap and [`docs/learning/learning.md`](docs/learning/learning.md) for the per-phase write-ups.
 
 > **Server-rendered, no SPA.** HTML comes from the server (templ); HTMX swaps fragments for server-driven interactions; Alpine handles client-only UI state (modals, toasts, calendar navigation). There is no JSON API and no client-side framework.
 
@@ -19,8 +19,9 @@ It was built as a **progressive learning project** — each phase (0–8) introd
 | Server interactions | **HTMX** | HTML-over-the-wire fragment swaps |
 | Client UI state | **Alpine.js** | modals, toast stack, calendar month nav |
 | Database | **PostgreSQL** | via `pgx/v5` connection pool |
-| DB access | **sqlc** | typed Go generated from `query.sql` + migrations |
-| Migrations | **golang-migrate** | `migrations/*.sql` |
+| DB access | **sqlc** | typed Go generated from `sql/queries/` + migrations |
+| Migrations | **golang-migrate** | `sql/migrations/*.sql` |
+| Task runner | **Make** | `make help` for all targets |
 | Asset pipeline | **Vite** | bundles/hashes JS + CSS into `public/build/` |
 | Auth | **bcrypt** (`golang.org/x/crypto`) | password hashing + Postgres-backed sessions |
 
@@ -87,11 +88,14 @@ internal/
   server/                   Route table + middleware wiring
 views/                      templ components (flat package) + view models
 assets/                     Vite manifest bridge (dev server vs built bundle)
-migrations/                 golang-migrate SQL (up/down)
-query.sql                   The single input to sqlc
-sqlc.yaml                   sqlc config
+sql/
+  migrations/               golang-migrate SQL (up/down)
+  queries/                  sqlc input (query.sql) — no loose SQL at the repo root
+sqlc.yaml                   sqlc config (schema: sql/migrations, queries: sql/queries)
 web/                        Vite project (package.json, vite.config.js, src/)
 public/build/               Vite output (gitignored; regenerate with npm run build)
+Makefile                    Common tasks — run `make help`
+docs/learning/              Learning roadmap & per-phase write-ups (phases, learning, project)
 ```
 
 ### Design decisions
@@ -195,55 +199,41 @@ The seed also creates leave types **Annual (25 days)**, **Sick (12)**, **Unpaid 
 - **Node 20+** (for the Vite asset build)
 - **PostgreSQL 12+** (Docker is easiest)
 - **[golang-migrate](https://github.com/golang-migrate/migrate) CLI** (`migrate`) — to apply migrations
+- **Make** — to use the task runner (recommended)
 - Optional (only to regenerate code): **[sqlc](https://sqlc.dev)** and **[templ](https://templ.guide)** CLIs
 
-### 1. Start Postgres and create the database
+### Fast path (Make)
 
 ```bash
+make db-docker    # start Postgres 16 in Docker and create the database
+make setup        # install deps, run migrations, seed data, build assets
+make run          # serve on http://localhost:8080
+```
+
+`make help` lists every target. Then open **http://localhost:8080** and log in (see [test users](#test-users)).
+
+The app defaults to `postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable`; override with `DATABASE_URL` (e.g. `make migrate-up DATABASE_URL=...`).
+
+### Step by step (what `make setup` runs under the hood)
+
+```bash
+# 1. Postgres + database (skip if you already have one)
 docker run --name leave-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
 docker exec -it leave-pg createdb -U postgres leave_management
-```
 
-The app defaults to `postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable`. Override with `DATABASE_URL` if yours differs.
-
-### 2. Apply migrations
-
-```bash
+# 2. Point at the database
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable"
-migrate -path migrations -database "$DATABASE_URL" up
-```
 
-### 3. Seed demo data
+# 3. Apply migrations  (make migrate-up)
+migrate -path sql/migrations -database "$DATABASE_URL" up
 
-```bash
+# 4. Seed demo data     (make seed)
 go run ./cmd/seed
-```
 
-### 4. Build front-end assets
-
-```bash
-cd web && npm install && npm run build && cd ..
-```
-
-This writes hashed JS/CSS + a manifest into `public/build/` (gitignored).
-
-### 5. Run
-
-```bash
-go run .
-```
-
-Open **http://localhost:8080** and log in (see [test users](#test-users)).
-
-### Quickstart (copy-paste)
-
-```bash
-docker run --name leave-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
-docker exec -it leave-pg createdb -U postgres leave_management
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/leave_management?sslmode=disable"
-migrate -path migrations -database "$DATABASE_URL" up
-go run ./cmd/seed
+# 5. Build assets → public/build/, gitignored  (make assets)
 ( cd web && npm install && npm run build )
+
+# 6. Run                (make run)
 go run .
 ```
 
@@ -252,14 +242,11 @@ go run .
 Run Vite and Go side by side so front-end edits hot-reload without a rebuild:
 
 ```bash
-# Terminal 1 — Vite dev server on :5173
-cd web && npm run dev
-
-# Terminal 2 — Go in dev mode; the layout points at the Vite dev server
-VITE_DEV=true go run .
+make web-dev      # terminal 1: Vite dev server on :5173
+make serve-dev    # terminal 2: Go in dev mode (VITE_DEV=true), assets from :5173
 ```
 
-Remember: after editing `.templ` files run `templ generate`; after editing `query.sql`/migrations run `sqlc generate`.
+Remember: after editing `.templ` run `make templ`; after editing `sql/queries` or a migration run `make sqlc` (or `make generate` for both).
 
 ### Environment variables
 
@@ -302,25 +289,42 @@ Sessions last 7 days (constant in `internal/config`).
 ## Testing
 
 ```bash
-go test ./...
+make test              # unit tests (the store integration test is skipped without a DB)
+make test-integration  # all tests incl. the DB-gated store test
 ```
 
 - `internal/leave` — pure unit test of the working-days calculation (weekends + holidays).
 - `internal/handlers` — no-DB router test: an unauthenticated request redirects to `/login`.
-- `internal/store` — sqlc integration test (create → approve → balances). **Skipped** unless a database is provided:
-
-```bash
-TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/store/
-```
+- `internal/store` — sqlc integration test (create → approve → balances), **skipped** unless `TEST_DATABASE_URL` is set (which `make test-integration` does).
 
 ---
 
 ## Regenerating generated code
 
 ```bash
-sqlc generate     # after editing query.sql or a migration → internal/db/
-templ generate    # after editing a .templ file → *_templ.go
+make sqlc      # after editing sql/queries or a migration → internal/db/
+make templ     # after editing a .templ file → *_templ.go
+make generate  # both
 ```
+
+---
+
+## Make targets
+
+Run `make` (or `make help`) for the full list. Most useful:
+
+| Target | What it does |
+|---|---|
+| `make setup` | First-time setup: deps → migrate → seed → build assets |
+| `make run` | Run the server (expects assets built) |
+| `make build` | Regenerate code, build assets, compile `bin/leave-management` |
+| `make web-dev` / `make serve-dev` | Vite HMR + Go dev mode (two terminals) |
+| `make generate` | `sqlc` + `templ` generation |
+| `make migrate-up` / `make migrate-down` | Apply / roll back migrations |
+| `make migrate-create name=...` | Scaffold a new migration pair in `sql/migrations` |
+| `make seed` | Seed demo data |
+| `make check` | Regenerate, `vet`, and `test` — the pre-commit sweep |
+| `make clean` | Remove `bin/` and `public/build/` |
 
 ---
 
