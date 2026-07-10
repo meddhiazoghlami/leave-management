@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Tailwind v4 scans these paths for class names so it generates exactly the
+   utilities we use and purges the rest. Path is relative to this file
+   (web/src). Our markup lives in views/*.templ (and the generated *_templ.go). */
+@source "../../views";

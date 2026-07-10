@@ -1,0 +1,22 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    # sqlc reads the golang-migrate files as the schema: it applies the *.up.sql
+    # migrations in order and ignores the *.down.sql ones. Same source of truth
+    # as the running database — no separate schema file to drift.
+    schema: "migrations"
+    queries: "query.sql"
+    gen:
+      go:
+        package: "db"
+        out: "db"
+        # Generate code against the pgx/v5 pool we already use (not database/sql).
+        sql_package: "pgx/v5"
+        emit_json_tags: false
+        emit_empty_slices: true
+        overrides:
+          # created_at is NOT NULL, so map timestamptz straight to time.Time
+          # instead of pgtype.Timestamptz — keeps the templ `.Format(...)` call
+          # and the rest of the app working with the standard library type.
+          - db_type: "timestamptz"
+            go_type: "time.Time"

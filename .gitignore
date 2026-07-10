@@ -1,0 +1,19 @@
+# Go
+*.exe
+*.test
+*.out
+/leave-management
+/tmp/
+
+# Node / Vite
+web/node_modules/
+
+# Vite build output (regenerate with `npm run build` in web/)
+public/build/
+
+# Env / secrets
+.env
+.env.*
+
+# OS
+.DS_Store
