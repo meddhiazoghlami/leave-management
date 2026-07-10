@@ -37,6 +37,9 @@ func New(ctx context.Context, dbURL string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// Ping verifies the database is reachable — used by the /healthz readiness probe.
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 // managerRef wraps an employee id as the NULL-able bigint sqlc expects for the
 // manager_id comparisons.
 func managerRef(id int64) pgtype.Int8 { return pgtype.Int8{Int64: id, Valid: true} }

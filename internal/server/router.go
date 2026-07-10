@@ -18,6 +18,9 @@ func New(h *handlers.Handlers, s *store.Store) *gin.Engine {
 	// Vite build output (Phase 8). Unused in dev, where assets come from :5173.
 	r.Static("/build", "./public/build")
 
+	// Readiness probe for containers/orchestrators — no session required.
+	r.GET("/healthz", h.Health)
+
 	// Public routes — no session required.
 	r.GET("/login", h.ShowLogin)
 	r.POST("/login", h.Login)

@@ -1,0 +1,70 @@
+# Production-like stack: Postgres + one-shot migrations + the app (+ optional seed).
+#
+#   docker compose up -d --build          # db → migrate → app
+#   docker compose --profile seed run --rm seed   # (optional) load demo data
+#
+# Credentials default to postgres/postgres/leave_management; override via env or a
+# .env file for real deployments.
+
+x-dburl: &dburl "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-leave_management}?sslmode=disable"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-leave_management}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-leave_management}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Applies migrations once, then exits. The app waits for it to finish cleanly.
+  migrate:
+    image: migrate/migrate:v4.18.1
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./sql/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", *dburl, "up"]
+    restart: on-failure
+
+  app:
+    build:
+      context: .
+    image: leave-management:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *dburl
+      ADDR: ":8080"
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  # Optional one-off demo seed. Only runs when the "seed" profile is selected, so
+  # it never touches a real deployment by accident.
+  seed:
+    image: leave-management:local
+    build:
+      context: .
+    profiles: ["seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *dburl
+    entrypoint: ["/app/seed"]
+    restart: "no"
+
+volumes:
+  pgdata:

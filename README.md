@@ -22,6 +22,7 @@ It was built as a **progressive learning project** — each phase (0–8) introd
 | DB access | **sqlc** | typed Go generated from `sql/queries/` + migrations |
 | Migrations | **golang-migrate** | `sql/migrations/*.sql` |
 | Task runner | **Make** | `make help` for all targets |
+| Deployment | **Docker + Compose** | multi-stage image; Postgres + migrations + app |
 | Asset pipeline | **Vite** | bundles/hashes JS + CSS into `public/build/` |
 | Auth | **bcrypt** (`golang.org/x/crypto`) | password hashing + Postgres-backed sessions |
 
@@ -95,6 +96,8 @@ sqlc.yaml                   sqlc config (schema: sql/migrations, queries: sql/qu
 web/                        Vite project (package.json, vite.config.js, src/)
 public/build/               Vite output (gitignored; regenerate with npm run build)
 Makefile                    Common tasks — run `make help`
+Dockerfile                  Multi-stage build (assets → binaries → alpine runtime)
+docker-compose.yml          Prod-like stack: db + migrations + app (+ seed profile)
 docs/learning/              Learning roadmap & per-phase write-ups (phases, learning, project)
 ```
 
@@ -248,6 +251,26 @@ make serve-dev    # terminal 2: Go in dev mode (VITE_DEV=true), assets from :517
 
 Remember: after editing `.templ` run `make templ`; after editing `sql/queries` or a migration run `make sqlc` (or `make generate` for both).
 
+### Run with Docker (production-like)
+
+A multi-stage `Dockerfile` and `docker-compose.yml` stand up the whole stack — Postgres, a one-shot migration runner, and the app:
+
+```bash
+docker compose up -d --build                  # db (healthcheck) → migrate → app
+docker compose --profile seed run --rm seed   # optional: load demo data
+# → http://localhost:8080   (readiness probe at /healthz)
+docker compose down                           # stop (keep data); `down -v` wipes the volume
+```
+
+- **`db`** — Postgres 16 with a named volume and a `pg_isready` healthcheck.
+- **`migrate`** — runs `migrate up`, then exits; the app waits on it via `depends_on: service_completed_successfully`.
+- **`app`** — the built image, running as a non-root user, with a container `HEALTHCHECK` hitting `/healthz`.
+- **`seed`** — the same image with the seed entrypoint, gated behind the `seed` profile so it never runs against a real deployment by accident.
+
+Credentials and ports default to `postgres` / `leave_management` / `8080` and are overridable via env (`POSTGRES_PASSWORD`, `DB_PORT`, `APP_PORT`, …) or a `.env` file. Make shortcuts: `make docker-up`, `make docker-seed`, `make docker-logs`, `make docker-down`, `make docker-clean`.
+
+> Assets are baked into the image (Vite build runs in the Dockerfile); rebuild with `--build` to pick up asset changes.
+
 ### Environment variables
 
 | Variable | Default | Purpose |
@@ -324,6 +347,8 @@ Run `make` (or `make help`) for the full list. Most useful:
 | `make migrate-create name=...` | Scaffold a new migration pair in `sql/migrations` |
 | `make seed` | Seed demo data |
 | `make check` | Regenerate, `vet`, and `test` — the pre-commit sweep |
+| `make docker-up` / `docker-down` | Run / stop the full Docker stack |
+| `make docker-seed` | Seed the Dockerized DB (opt-in) |
 | `make clean` | Remove `bin/` and `public/build/` |
 
 ---

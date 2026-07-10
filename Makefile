@@ -114,6 +114,28 @@ fmt: ## Format Go code
 tidy: ## Tidy go.mod / go.sum
 	go mod tidy
 
+# ---- Docker (production-like) ----
+
+.PHONY: docker-up
+docker-up: ## Build + start the full stack (db, migrate, app) in the background
+	docker compose up -d --build
+
+.PHONY: docker-seed
+docker-seed: ## Seed the Dockerized database (one-off, opt-in profile)
+	docker compose --profile seed run --rm seed
+
+.PHONY: docker-logs
+docker-logs: ## Tail the app container logs
+	docker compose logs -f app
+
+.PHONY: docker-down
+docker-down: ## Stop the stack (keeps the db volume)
+	docker compose down
+
+.PHONY: docker-clean
+docker-clean: ## Stop the stack and delete the db volume
+	docker compose down -v
+
 # ---- Cleanup ----
 
 .PHONY: clean
