@@ -5,8 +5,7 @@ import (
 	"log"
 
 	"github.com/dzovi/leave-management/assets"
-	"github.com/dzovi/leave-management/internal/handlers"
-	"github.com/dzovi/leave-management/internal/server"
+	"github.com/dzovi/leave-management/internal/app"
 	"github.com/spf13/cobra"
 )
 
@@ -16,25 +15,23 @@ var serveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
 
-		st, cfg, err := openStore(ctx)
+		// Wire builds config → store → handlers → router; cleanup closes the pool.
+		application, cleanup, err := app.InitializeApp(ctx)
 		if err != nil {
 			return err
 		}
-		defer st.Close()
+		defer cleanup()
 
 		// Best-effort cleanup of expired sessions on boot.
-		_ = st.DeleteExpiredSessions(ctx)
+		_ = application.Store.DeleteExpiredSessions(ctx)
 
 		// Phase 8: dev mode (VITE_DEV=true) points the layout at the Vite dev
 		// server for HMR; otherwise we read the built manifest.
-		if err := assets.Init(cfg.ViteDev); err != nil {
+		if err := assets.Init(application.Config.ViteDev); err != nil {
 			return fmt.Errorf("load asset manifest (did you run `npm run build` in web/?): %w", err)
 		}
 
-		h := handlers.New(st, cfg)
-		r := server.New(h, st)
-
-		log.Printf("listening on %s", cfg.Addr)
-		return r.Run(cfg.Addr)
+		log.Printf("listening on %s", application.Config.Addr)
+		return application.Router.Run(application.Config.Addr)
 	},
 }

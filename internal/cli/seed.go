@@ -3,6 +3,7 @@ package cli
 import (
 	"log"
 
+	"github.com/dzovi/leave-management/internal/app"
 	"github.com/dzovi/leave-management/internal/seed"
 	"github.com/spf13/cobra"
 )
@@ -13,11 +14,12 @@ var seedCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
 
-		st, _, err := openStore(ctx)
+		// DB-only injector — no HTTP router needed for seeding.
+		st, cleanup, err := app.InitializeStore(ctx)
 		if err != nil {
 			return err
 		}
-		defer st.Close()
+		defer cleanup()
 
 		if err := seed.Run(ctx, st); err != nil {
 			return err

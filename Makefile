@@ -57,7 +57,7 @@ serve-dev: ## Run Go in dev mode (assets served from the Vite dev server)
 # ---- Code generation ----
 
 .PHONY: generate
-generate: sqlc templ ## Regenerate sqlc + templ code
+generate: sqlc templ wire ## Regenerate sqlc + templ + wire code
 
 .PHONY: sqlc
 sqlc: ## Regenerate the typed DB layer from sql/
@@ -66,6 +66,10 @@ sqlc: ## Regenerate the typed DB layer from sql/
 .PHONY: templ
 templ: ## Regenerate templ components
 	templ generate
+
+.PHONY: wire
+wire: ## Regenerate the Wire dependency-injection code (internal/app)
+	go tool wire gen ./internal/app
 
 .PHONY: assets
 assets: ## Build front-end assets with Vite

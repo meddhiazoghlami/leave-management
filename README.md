@@ -14,6 +14,7 @@ It was built as a **progressive learning project** — each phase (0–8) introd
 |---|---|---|
 | Language | **Go 1.25** | single binary |
 | CLI | **Cobra** | one binary, `serve` + `seed` subcommands |
+| Dependency injection | **Wire** | compile-time DI; composition root in `internal/app` |
 | HTTP | **Gin** | routing + middleware groups |
 | HTML templating | **templ** | type-safe Go components (`.templ` → generated `.go`) |
 | Styling | **Tailwind CSS v4** | utility-first, purged at build time |
@@ -79,6 +80,7 @@ Assets: Vite builds views' Tailwind classes + Alpine/HTMX into public/build/;
 ```
 main.go                     Thin entrypoint → cli.Execute()
 internal/
+  app/                      Composition root: App struct + Wire injectors (wire_gen.go)
   cli/                      Cobra command tree (root, serve, seed)
   config/                   Environment → typed Config
   db/                       sqlc-generated queries + models (DO NOT EDIT)
@@ -107,6 +109,7 @@ docs/learning/              Learning roadmap & per-phase write-ups (phases, lear
 ### Design decisions
 
 - **`internal/` packages by concern** — adding a feature is a predictable walk: a query → a store method → a handler → a templ component.
+- **Dependency injection via Wire** — `internal/app` is the composition root. `InitializeApp` (config → store → handlers → router) and `InitializeStore` (DB-only, for `seed`) are Wire-*generated*, so the graph is explicit and compile-checked instead of hand-wired, and the DB pool's cleanup is threaded through automatically.
 - **TEXT + CHECK for enums** (`role`, `status`) rather than native Postgres enums — trivial to evolve in a migration; sqlc maps both to Go `string`.
 - **Working days snapshotted** on the request at submit time, so later holiday-calendar edits can't retroactively resize an approved request.
 - **Balances computed in SQL** (`ListBalances`) via a LEFT JOIN of allocations against `SUM(working_days)` of approved requests.
@@ -333,7 +336,8 @@ make test-integration  # all tests incl. the DB-gated store test
 ```bash
 make sqlc      # after editing sql/queries or a migration → internal/db/
 make templ     # after editing a .templ file → *_templ.go
-make generate  # both
+make wire      # after changing providers/injectors → internal/app/wire_gen.go
+make generate  # all three
 ```
 
 ---
