@@ -13,7 +13,12 @@ func (h *Handlers) Dashboard(c *gin.Context) {
 	emp := auth.MustEmployee(c)
 	ctx := c.Request.Context()
 
-	balances, err := h.Store.ListBalances(ctx, emp.ID, currentYear())
+	year, wStart, wEnd, err := h.balanceScope(ctx)
+	if err != nil {
+		c.String(500, "load settings: %v", err)
+		return
+	}
+	balances, err := h.Store.ListBalances(ctx, emp.ID, year, wStart, wEnd)
 	if err != nil {
 		c.String(500, "load balances: %v", err)
 		return

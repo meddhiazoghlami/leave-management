@@ -6,6 +6,7 @@ package views
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/meddhiazoghlami/leave-management/internal/db"
@@ -60,7 +61,40 @@ type AdminData struct {
 	LeaveTypes []db.LeaveType
 	Holidays   []db.PublicHoliday
 	Employees  []db.ListEmployeesRow
+	Settings   db.CompanySetting
 	Year       int
+}
+
+// Weekdays lists the working-week flags Monday-first, for rendering the
+// settings checkboxes. Field is the form input name; On is the current value.
+func (d AdminData) Weekdays() []struct {
+	Field string
+	Label string
+	On    bool
+} {
+	return []struct {
+		Field string
+		Label string
+		On    bool
+	}{
+		{"work_monday", "Mon", d.Settings.WorkMonday},
+		{"work_tuesday", "Tue", d.Settings.WorkTuesday},
+		{"work_wednesday", "Wed", d.Settings.WorkWednesday},
+		{"work_thursday", "Thu", d.Settings.WorkThursday},
+		{"work_friday", "Fri", d.Settings.WorkFriday},
+		{"work_saturday", "Sat", d.Settings.WorkSaturday},
+		{"work_sunday", "Sun", d.Settings.WorkSunday},
+	}
+}
+
+// monthName maps 1..12 to its English name (for the leave-year start select).
+func monthName(m int) string {
+	names := []string{"January", "February", "March", "April", "May", "June",
+		"July", "August", "September", "October", "November", "December"}
+	if m < 1 || m > 12 {
+		return ""
+	}
+	return names[m-1]
 }
 
 // ───────────────────────────── calendar grid ─────────────────────────────
@@ -91,6 +125,10 @@ type CalendarData struct {
 // ───────────────────────────── formatting ────────────────────────────────
 
 func fmtDate(t time.Time) string { return t.Format("02 Jan 2006") }
+
+// fmtDays renders a fractional day count without trailing zeros:
+// 22 -> "22", 1.83 -> "1.83", 2.5 -> "2.5".
+func fmtDays(d float64) string { return strconv.FormatFloat(d, 'f', -1, 64) }
 
 // fmtRange renders a single day as one date and a multi-day span as "a – b".
 func fmtRange(a, b time.Time) string {

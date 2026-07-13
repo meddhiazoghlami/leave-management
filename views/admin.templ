@@ -10,9 +10,44 @@ templ AdminPage(d AdminData) {
 	@Layout(d.Nav) {
 		<div class="mb-6">
 			<h1 class="text-2xl font-bold">Admin</h1>
-			<p class="text-sm text-slate-500">Manage leave types, allocations, and public holidays.</p>
+			<p class="text-sm text-slate-500">Configure general settings, leave types, allocations, and public holidays.</p>
 		</div>
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<section class="bg-white rounded-2xl border border-slate-200 p-5 lg:col-span-2">
+				<h2 class="font-semibold mb-1">General settings</h2>
+				<p class="text-sm text-slate-500 mb-3">Set the working week and when the leave year starts — policy that used to be hardcoded, now editable here.</p>
+				// hx-swap="none": just persist and fire a toast.
+				<form hx-post="/admin/settings" hx-swap="none" class="flex flex-col gap-4">
+					<div class="flex gap-2 items-end flex-wrap">
+						<div>
+							<label class="block text-xs text-slate-400 mb-1">Company name</label>
+							<input name="name" value={ d.Settings.Name } class="rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+						</div>
+						<div>
+							<label class="block text-xs text-slate-400 mb-1">Leave year starts</label>
+							<select name="leave_year_start_month" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+								for m := 1; m <= 12; m++ {
+									<option value={ strconv.Itoa(m) } selected?={ m == int(d.Settings.LeaveYearStartMonth) }>{ monthName(m) }</option>
+								}
+							</select>
+						</div>
+					</div>
+					<div>
+						<label class="block text-xs text-slate-400 mb-2">Working days</label>
+						<div class="flex gap-3 flex-wrap">
+							for _, wd := range d.Weekdays() {
+								<label class="flex items-center gap-1.5 text-sm text-slate-700">
+									<input type="checkbox" name={ wd.Field } checked?={ wd.On } class="rounded border-slate-300"/>
+									{ wd.Label }
+								</label>
+							}
+						</div>
+					</div>
+					<div>
+						<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500">Save settings</button>
+					</div>
+				</form>
+			</section>
 			<section class="bg-white rounded-2xl border border-slate-200 p-5">
 				<h2 class="font-semibold mb-3">Leave types</h2>
 				<ul id="leave-type-list" class="divide-y divide-slate-100 mb-4">
@@ -20,7 +55,7 @@ templ AdminPage(d AdminData) {
 				</ul>
 				<form hx-post="/admin/leave-types" hx-target="#leave-type-list" hx-swap="innerHTML" hx-on::after-request="this.reset()" class="flex gap-2 items-end flex-wrap">
 					<input name="name" required placeholder="Name" class="flex-1 min-w-[8rem] rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
-					<input name="default_days" type="number" min="0" value="0" required title="Default days per year" class="w-20 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+					<input name="default_days" type="number" min="0" step="0.01" value="0" required title="Default days per year" class="w-20 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
 					<input name="color" type="color" value="#6366f1" title="Colour" class="h-9 w-12 rounded border border-slate-300 p-0.5"/>
 					<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500">Add</button>
 				</form>
@@ -59,7 +94,7 @@ templ AdminPage(d AdminData) {
 					</div>
 					<div>
 						<label class="block text-xs text-slate-400 mb-1">Days</label>
-						<input name="days" type="number" min="0" value="25" required class="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
+						<input name="days" type="number" min="0" step="0.01" value="25" required class="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>
 					</div>
 					<button type="submit" class="rounded-lg bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500">Save</button>
 				</form>
@@ -76,7 +111,7 @@ templ LeaveTypeRows(types []db.LeaveType) {
 			<li class="py-2 flex items-center gap-2">
 				@colorDot(t.Color)
 				<span class="text-sm font-medium text-slate-800">{ t.Name }</span>
-				<span class="text-xs text-slate-400">· { strconv.FormatInt(int64(t.DefaultDays), 10) } days/yr default</span>
+				<span class="text-xs text-slate-400">· { fmtDays(t.DefaultDays) } days/yr default</span>
 			</li>
 		}
 	}

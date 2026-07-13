@@ -184,9 +184,9 @@ func approvalCard(r db.ListPendingForManagerRow) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
-		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatInt(int64(r.WorkingDays), 10))
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(fmtDays(r.WorkingDays))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/approvals.templ`, Line: 46, Col: 89}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `views/approvals.templ`, Line: 46, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {

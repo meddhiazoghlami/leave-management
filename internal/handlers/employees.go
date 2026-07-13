@@ -49,7 +49,12 @@ func (h *Handlers) EmployeeProfile(c *gin.Context) {
 		return
 	}
 
-	balances, err := h.Store.ListBalances(ctx, id, currentYear())
+	year, wStart, wEnd, err := h.balanceScope(ctx)
+	if err != nil {
+		c.String(500, "load settings: %v", err)
+		return
+	}
+	balances, err := h.Store.ListBalances(ctx, id, year, wStart, wEnd)
 	if err != nil {
 		c.String(500, "load balances: %v", err)
 		return

@@ -25,12 +25,12 @@ type Store interface {
 	GetEmployeeByEmail(ctx context.Context, email string) (db.Employee, error)
 	CreateEmployee(ctx context.Context, name, email, passwordHash, role string, managerID *int64) (db.Employee, error)
 	ListLeaveTypes(ctx context.Context) ([]db.LeaveType, error)
-	CreateLeaveType(ctx context.Context, name string, defaultDays int32, color string) (db.LeaveType, error)
-	UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year, days int32) (db.LeaveAllocation, error)
+	CreateLeaveType(ctx context.Context, name string, defaultDays float64, color string) (db.LeaveType, error)
+	UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year int32, days float64) (db.LeaveAllocation, error)
 	ListHolidays(ctx context.Context) ([]db.PublicHoliday, error)
 	CreateHoliday(ctx context.Context, name string, date time.Time) (db.PublicHoliday, error)
 	ListRequestsByEmployee(ctx context.Context, employeeID int64) ([]db.ListRequestsByEmployeeRow, error)
-	CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays int32, reason string) (db.CreateLeaveRequestRow, error)
+	CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays float64, reason string) (db.CreateLeaveRequestRow, error)
 }
 
 // Password is shared by every seeded account.
@@ -127,7 +127,7 @@ func ensureLeaveTypes(ctx context.Context, st Store) ([]db.LeaveType, error) {
 	}
 	defs := []struct {
 		Name  string
-		Days  int32
+		Days  float64
 		Color string
 	}{
 		{"Annual", 25, "#6366f1"},
@@ -184,8 +184,8 @@ func ensureSampleRequest(ctx context.Context, st Store, emp db.Employee, t db.Le
 	if reqs, _ := st.ListRequestsByEmployee(ctx, emp.ID); len(reqs) > 0 {
 		return nil // already has requests — don't pile on more each run
 	}
-	days := leave.WorkingDays(start, end, nil)
-	if _, err := st.CreateLeaveRequest(ctx, emp.ID, t.ID, start, end, int32(days), "Sample seeded request"); err != nil {
+	days := leave.WorkingDays(start, end, leave.DefaultWorkingWeek(), nil)
+	if _, err := st.CreateLeaveRequest(ctx, emp.ID, t.ID, start, end, float64(days), "Sample seeded request"); err != nil {
 		return fmt.Errorf("create sample request for %s: %w", emp.Email, err)
 	}
 	return nil

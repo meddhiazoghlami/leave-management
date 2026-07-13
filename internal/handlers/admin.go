@@ -5,12 +5,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/meddhiazoghlami/leave-management/internal/leave"
 	"github.com/meddhiazoghlami/leave-management/views"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Admin renders the single admin page: leave types, holidays, and allocations.
+// Admin renders the single admin page: general settings, leave types, holidays,
+// and allocations.
 func (h *Handlers) Admin(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -29,13 +31,49 @@ func (h *Handlers) Admin(c *gin.Context) {
 		c.String(500, "load employees: %v", err)
 		return
 	}
+	settings, err := h.Store.GetSettings(ctx)
+	if err != nil {
+		c.String(500, "load settings: %v", err)
+		return
+	}
+	// The allocation section is scoped to the current leave year's label so it
+	// lines up with the balances shown on the dashboard.
+	_, _, label := leave.LeaveYearWindow(time.Now(), int(settings.LeaveYearStartMonth))
 	render(c, 200, views.AdminPage(views.AdminData{
 		Nav:        h.navFor(c, "admin", "Admin"),
 		LeaveTypes: types,
 		Holidays:   holidays,
 		Employees:  employees,
-		Year:       int(currentYear()),
+		Settings:   settings,
+		Year:       label,
 	}))
+}
+
+// SaveSettings persists the general company settings (working week + leave-year
+// start month). Uses hx-swap="none": it just saves and fires a toast.
+func (h *Handlers) SaveSettings(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	name := strings.TrimSpace(c.PostForm("name"))
+	if name == "" {
+		name = "My Company"
+	}
+	month, err := strconv.Atoi(c.PostForm("leave_year_start_month"))
+	if err != nil || month < 1 || month > 12 {
+		toast(c, "Pick a valid leave-year start month.", "error")
+		c.Status(400)
+		return
+	}
+	// Unchecked checkboxes aren't submitted at all, so presence == working day.
+	on := func(field string) bool { return c.PostForm(field) != "" }
+	if err := h.Store.UpdateSettings(ctx, name, int32(month),
+		on("work_monday"), on("work_tuesday"), on("work_wednesday"), on("work_thursday"),
+		on("work_friday"), on("work_saturday"), on("work_sunday")); err != nil {
+		c.String(500, "save settings: %v", err)
+		return
+	}
+	toast(c, "Settings saved.", "success")
+	c.Status(200)
 }
 
 // CreateLeaveType adds a leave type and returns the refreshed list fragment.
@@ -48,12 +86,12 @@ func (h *Handlers) CreateLeaveType(c *gin.Context) {
 		c.Status(400)
 		return
 	}
-	days, _ := strconv.Atoi(c.PostForm("default_days"))
+	days, _ := strconv.ParseFloat(c.PostForm("default_days"), 64)
 	color := c.PostForm("color")
 	if color == "" {
 		color = "#6366f1"
 	}
-	if _, err := h.Store.CreateLeaveType(ctx, name, int32(days), color); err != nil {
+	if _, err := h.Store.CreateLeaveType(ctx, name, days, color); err != nil {
 		c.String(500, "create leave type: %v", err)
 		return
 	}
@@ -122,13 +160,18 @@ func (h *Handlers) SetAllocation(c *gin.Context) {
 
 	empID, err1 := strconv.ParseInt(c.PostForm("employee_id"), 10, 64)
 	typeID, err2 := strconv.ParseInt(c.PostForm("leave_type_id"), 10, 64)
-	days, err3 := strconv.Atoi(c.PostForm("days"))
+	days, err3 := strconv.ParseFloat(c.PostForm("days"), 64)
 	if err1 != nil || err2 != nil || err3 != nil {
 		toast(c, "Please fill in all allocation fields.", "error")
 		c.Status(400)
 		return
 	}
-	if _, err := h.Store.UpsertAllocation(ctx, empID, typeID, currentYear(), int32(days)); err != nil {
+	year, _, _, err := h.balanceScope(ctx)
+	if err != nil {
+		c.String(500, "load settings: %v", err)
+		return
+	}
+	if _, err := h.Store.UpsertAllocation(ctx, empID, typeID, year, days); err != nil {
 		c.String(500, "save allocation: %v", err)
 		return
 	}

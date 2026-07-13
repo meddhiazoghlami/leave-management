@@ -30,10 +30,10 @@ templ balanceCards(balances []db.ListBalancesRow) {
 					<span class="text-sm font-medium text-slate-700">{ b.LeaveTypeName }</span>
 				</div>
 				<div class="mt-3 flex items-baseline gap-1">
-					<span class="text-3xl font-bold text-slate-900">{ strconv.FormatInt(int64(b.Remaining), 10) }</span>
-					<span class="text-sm text-slate-400">/ { strconv.FormatInt(int64(b.Allocated), 10) } days</span>
+					<span class="text-3xl font-bold text-slate-900">{ fmtDays(b.Remaining) }</span>
+					<span class="text-sm text-slate-400">/ { fmtDays(b.Allocated) } days</span>
 				</div>
-				<div class="mt-1 text-xs text-slate-400">{ strconv.FormatInt(int64(b.Used), 10) } used this year</div>
+				<div class="mt-1 text-xs text-slate-400">{ fmtDays(b.Used) } used this year</div>
 			</div>
 		}
 	</div>
@@ -62,7 +62,7 @@ templ requestRows(requests []db.ListRequestsByEmployeeRow, cancellable bool) {
 					</div>
 				</td>
 				<td class="py-3 pr-4 text-sm text-slate-600">{ fmtRange(r.StartDate, r.EndDate) }</td>
-				<td class="py-3 pr-4 text-sm text-slate-600">{ strconv.FormatInt(int64(r.WorkingDays), 10) }</td>
+				<td class="py-3 pr-4 text-sm text-slate-600">{ fmtDays(r.WorkingDays) }</td>
 				<td class="py-3 pr-4">
 					@statusBadge(r.Status)
 				</td>

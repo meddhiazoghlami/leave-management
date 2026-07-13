@@ -46,13 +46,13 @@ func (f *fakeSeedStore) ListLeaveTypes(context.Context) ([]db.LeaveType, error) 
 	}
 	return f.types, nil
 }
-func (f *fakeSeedStore) CreateLeaveType(context.Context, string, int32, string) (db.LeaveType, error) {
+func (f *fakeSeedStore) CreateLeaveType(context.Context, string, float64, string) (db.LeaveType, error) {
 	if f.bad("CreateLeaveType") {
 		return db.LeaveType{}, errSeed
 	}
 	return db.LeaveType{ID: 1}, nil
 }
-func (f *fakeSeedStore) UpsertAllocation(context.Context, int64, int64, int32, int32) (db.LeaveAllocation, error) {
+func (f *fakeSeedStore) UpsertAllocation(context.Context, int64, int64, int32, float64) (db.LeaveAllocation, error) {
 	if f.bad("UpsertAllocation") {
 		return db.LeaveAllocation{}, errSeed
 	}
@@ -73,7 +73,7 @@ func (f *fakeSeedStore) CreateHoliday(context.Context, string, time.Time) (db.Pu
 func (f *fakeSeedStore) ListRequestsByEmployee(context.Context, int64) ([]db.ListRequestsByEmployeeRow, error) {
 	return nil, nil // no existing requests -> seed proceeds to create sample ones
 }
-func (f *fakeSeedStore) CreateLeaveRequest(context.Context, int64, int64, time.Time, time.Time, int32, string) (db.CreateLeaveRequestRow, error) {
+func (f *fakeSeedStore) CreateLeaveRequest(context.Context, int64, int64, time.Time, time.Time, float64, string) (db.CreateLeaveRequestRow, error) {
 	if f.bad("CreateLeaveRequest") {
 		return db.CreateLeaveRequestRow{}, errSeed
 	}

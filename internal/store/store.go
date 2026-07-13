@@ -104,13 +104,13 @@ func (s *Store) ListLeaveTypes(ctx context.Context) ([]db.LeaveType, error) {
 	return s.q.ListLeaveTypes(ctx)
 }
 
-func (s *Store) CreateLeaveType(ctx context.Context, name string, defaultDays int32, color string) (db.LeaveType, error) {
+func (s *Store) CreateLeaveType(ctx context.Context, name string, defaultDays float64, color string) (db.LeaveType, error) {
 	return s.q.CreateLeaveType(ctx, db.CreateLeaveTypeParams{Name: name, DefaultDays: defaultDays, Color: color})
 }
 
 // ─────────────────────────── leave_allocations ───────────────────────────
 
-func (s *Store) UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year, days int32) (db.LeaveAllocation, error) {
+func (s *Store) UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year int32, days float64) (db.LeaveAllocation, error) {
 	return s.q.UpsertAllocation(ctx, db.UpsertAllocationParams{
 		EmployeeID:  employeeID,
 		LeaveTypeID: leaveTypeID,
@@ -121,7 +121,7 @@ func (s *Store) UpsertAllocation(ctx context.Context, employeeID, leaveTypeID in
 
 // ──────────────────────────── leave_requests ─────────────────────────────
 
-func (s *Store) CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays int32, reason string) (db.CreateLeaveRequestRow, error) {
+func (s *Store) CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays float64, reason string) (db.CreateLeaveRequestRow, error) {
 	return s.q.CreateLeaveRequest(ctx, db.CreateLeaveRequestParams{
 		EmployeeID:  employeeID,
 		LeaveTypeID: leaveTypeID,
@@ -160,8 +160,39 @@ func (s *Store) CancelOwnRequest(ctx context.Context, id, employeeID int64) erro
 
 // ──────────────────────────────── balances ───────────────────────────────
 
-func (s *Store) ListBalances(ctx context.Context, employeeID int64, year int32) ([]db.ListBalancesRow, error) {
-	return s.q.ListBalances(ctx, db.ListBalancesParams{EmployeeID: employeeID, Year: year})
+// ListBalances returns per-type allocated/used/remaining for the leave year
+// keyed by `year`, counting approved usage whose start_date falls in
+// [windowStart, windowEnd]. The caller computes the window + label from
+// company_settings via leave.LeaveYearWindow.
+func (s *Store) ListBalances(ctx context.Context, employeeID int64, year int32, windowStart, windowEnd time.Time) ([]db.ListBalancesRow, error) {
+	return s.q.ListBalances(ctx, db.ListBalancesParams{
+		EmployeeID:  employeeID,
+		Year:        year,
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+	})
+}
+
+// ────────────────────────── company settings ─────────────────────────────
+
+// GetSettings returns the single company_settings row (id = 1).
+func (s *Store) GetSettings(ctx context.Context) (db.CompanySetting, error) {
+	return s.q.GetSettings(ctx)
+}
+
+// UpdateSettings writes the working week + leave-year start to the settings row.
+func (s *Store) UpdateSettings(ctx context.Context, name string, leaveYearStartMonth int32, mon, tue, wed, thu, fri, sat, sun bool) error {
+	return s.q.UpdateSettings(ctx, db.UpdateSettingsParams{
+		Name:                name,
+		LeaveYearStartMonth: leaveYearStartMonth,
+		WorkMonday:          mon,
+		WorkTuesday:         tue,
+		WorkWednesday:       wed,
+		WorkThursday:        thu,
+		WorkFriday:          fri,
+		WorkSaturday:        sat,
+		WorkSunday:          sun,
+	})
 }
 
 // ──────────────────────────────── calendar ───────────────────────────────

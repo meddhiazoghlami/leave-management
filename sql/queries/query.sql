@@ -131,11 +131,15 @@ WHERE id = @id AND employee_id = @employee_id AND status = 'pending';
 -- Per leave type: allocated days for the year minus days already used by
 -- APPROVED requests in that year. LEFT JOINs so a type with no allocation and
 -- no usage still shows up (as 0 / 0).
+-- Per leave type: allocated days for the leave year minus days already used by
+-- APPROVED requests whose start_date falls in that leave-year window. The
+-- window (and the @year label that keys allocations) is computed in Go from
+-- company_settings.leave_year_start_month, so a non-January leave year works.
 -- name: ListBalances :many
 SELECT lt.id AS leave_type_id, lt.name AS leave_type_name, lt.color AS leave_type_color,
-       COALESCE(a.days, 0)::int AS allocated,
-       COALESCE(u.used, 0)::int AS used,
-       (COALESCE(a.days, 0) - COALESCE(u.used, 0))::int AS remaining
+       COALESCE(a.days, 0)::numeric AS allocated,
+       COALESCE(u.used, 0)::numeric AS used,
+       (COALESCE(a.days, 0) - COALESCE(u.used, 0))::numeric AS remaining
 FROM leave_types lt
 LEFT JOIN leave_allocations a
        ON a.leave_type_id = lt.id
@@ -146,7 +150,7 @@ LEFT JOIN (
     FROM leave_requests
     WHERE employee_id = @employee_id
       AND status = 'approved'
-      AND EXTRACT(YEAR FROM start_date)::int = @year::int
+      AND start_date BETWEEN @window_start::date AND @window_end::date
     GROUP BY leave_type_id
 ) u ON u.leave_type_id = lt.id
 ORDER BY lt.name;
@@ -187,3 +191,28 @@ RETURNING id, name, holiday_date, created_at;
 
 -- name: DeleteHoliday :exec
 DELETE FROM public_holidays WHERE id = $1;
+
+-- ─────────────────────────── company settings ────────────────────────────
+
+-- The settings row is pinned to id = 1 (see migration 000003), so both queries
+-- target it directly.
+-- name: GetSettings :one
+SELECT id, name, leave_year_start_month,
+       work_monday, work_tuesday, work_wednesday, work_thursday,
+       work_friday, work_saturday, work_sunday, updated_at
+FROM company_settings
+WHERE id = 1;
+
+-- name: UpdateSettings :exec
+UPDATE company_settings
+SET name                   = @name,
+    leave_year_start_month = @leave_year_start_month::int,
+    work_monday            = @work_monday,
+    work_tuesday           = @work_tuesday,
+    work_wednesday         = @work_wednesday,
+    work_thursday          = @work_thursday,
+    work_friday            = @work_friday,
+    work_saturday          = @work_saturday,
+    work_sunday            = @work_sunday,
+    updated_at             = now()
+WHERE id = 1;

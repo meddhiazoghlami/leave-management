@@ -43,7 +43,7 @@ templ approvalCard(r db.ListPendingForManagerRow) {
 				<span class="text-sm text-slate-400">· { r.LeaveTypeName }</span>
 			</div>
 			<div class="mt-1 text-sm text-slate-600">
-				{ fmtRange(r.StartDate, r.EndDate) } · { strconv.FormatInt(int64(r.WorkingDays), 10) } day(s)
+				{ fmtRange(r.StartDate, r.EndDate) } · { fmtDays(r.WorkingDays) } day(s)
 			</div>
 			if r.Reason != "" {
 				<div class="mt-1 text-sm text-slate-400 italic">"{ r.Reason }"</div>

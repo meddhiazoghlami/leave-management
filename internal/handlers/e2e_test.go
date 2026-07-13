@@ -299,6 +299,40 @@ func TestCreateRequest_WithHolidayInRange(t *testing.T) {
 	}
 }
 
+// TestSettings_FriSatWeekend is the M1 acceptance test: after the admin switches
+// the working week to Sun–Thu (a Fri/Sat weekend), a Sun–Thu leave request must
+// count 5 working days rather than the Mon–Fri default's 4.
+func TestSettings_FriSatWeekend(t *testing.T) {
+	h := setup(t)
+
+	// Unchecked weekday boxes are simply absent from the POST, so we send only
+	// the five working days (Sun–Thu); Fri/Sat are the weekend.
+	settings := form(
+		"name", "Acme",
+		"leave_year_start_month", "1",
+		"work_sunday", "on",
+		"work_monday", "on",
+		"work_tuesday", "on",
+		"work_wednesday", "on",
+		"work_thursday", "on",
+	)
+	mustStatus(t, do(h.router, http.MethodPost, "/admin/settings", settings, h.admin), http.StatusOK)
+
+	sun := nextWeekday(time.Now().AddDate(0, 0, 7), time.Sunday)
+	req := form(
+		"leave_type_id", itoa(h.annualID),
+		"start_date", ymd(sun),
+		"end_date", ymd(sun.AddDate(0, 0, 4)), // the following Thursday
+		"reason", "x",
+	)
+	mustStatus(t, do(h.router, http.MethodPost, "/requests", req, h.alice), http.StatusOK)
+
+	reqs, _ := h.store.ListRequestsByEmployee(context.Background(), h.aliceID)
+	if len(reqs) != 1 || reqs[0].WorkingDays != 5 {
+		t.Fatalf("expected 1 request with 5 working days (Sun–Thu, Fri/Sat weekend), got %+v", reqs)
+	}
+}
+
 func TestCancelRequest(t *testing.T) {
 	h := setup(t)
 	id := h.submitAnnual(h.aliceID, h.alice)
@@ -401,10 +435,40 @@ func TestEmployeeProfile(t *testing.T) {
 
 func TestAdminRoleGate(t *testing.T) {
 	h := setup(t)
+	// Admin reaches the page and it renders (incl. the new general-settings form).
+	mustStatus(t, do(h.router, http.MethodGet, "/admin", nil, h.admin), http.StatusOK)
 	// Manager is blocked from /admin (admin-only).
 	mustStatus(t, do(h.router, http.MethodGet, "/admin", nil, h.manager), http.StatusForbidden)
 	// Employee too.
 	mustStatus(t, do(h.router, http.MethodGet, "/admin", nil, h.alice), http.StatusForbidden)
+}
+
+// TestSaveSettings_Persists round-trips the general settings through the handler
+// and the store, and confirms a bad month is rejected.
+func TestSaveSettings_Persists(t *testing.T) {
+	h := setup(t)
+	mustStatus(t, do(h.router, http.MethodPost, "/admin/settings",
+		form("name", "Globex", "leave_year_start_month", "4",
+			"work_monday", "on", "work_tuesday", "on", "work_wednesday", "on",
+			"work_thursday", "on", "work_friday", "on"), h.admin), http.StatusOK)
+
+	s, err := h.store.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if s.Name != "Globex" || s.LeaveYearStartMonth != 4 {
+		t.Fatalf("settings = %+v, want name Globex, month 4", s)
+	}
+	if !s.WorkFriday || s.WorkSaturday || s.WorkSunday {
+		t.Fatalf("working week not saved as Mon–Fri: %+v", s)
+	}
+
+	// A bad month is rejected (400), leaving the saved value untouched.
+	mustStatus(t, do(h.router, http.MethodPost, "/admin/settings",
+		form("name", "Globex", "leave_year_start_month", "0"), h.admin), http.StatusBadRequest)
+	if s2, _ := h.store.GetSettings(context.Background()); s2.LeaveYearStartMonth != 4 {
+		t.Fatalf("bad month clobbered saved value: month = %d, want 4", s2.LeaveYearStartMonth)
+	}
 }
 
 func TestAdminMutations(t *testing.T) {

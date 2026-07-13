@@ -21,6 +21,11 @@ type Config struct {
 	// ViteDev points the asset layer at the Vite dev server (HMR) instead of
 	// the built manifest.
 	ViteDev bool
+	// AutoMigrate, when true, makes the app apply any pending DB migrations on
+	// startup (before opening the store). Handy for local dev so `serve`/`seed`
+	// "just work"; left false in production, where migrations run as a
+	// deliberate, separate step (the Docker Compose `migrate` service).
+	AutoMigrate bool
 }
 
 // Load reads configuration from the environment. A .env file in the working
@@ -43,6 +48,7 @@ func Load() (Config, error) {
 		Addr:        env("ADDR", ":8080"),
 		SessionTTL:  7 * 24 * time.Hour,
 		ViteDev:     os.Getenv("VITE_DEV") == "true",
+		AutoMigrate: os.Getenv("AUTO_MIGRATE") == "true",
 	}, nil
 }
 

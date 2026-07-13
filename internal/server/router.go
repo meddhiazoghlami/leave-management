@@ -50,10 +50,11 @@ func New(h *handlers.Handlers, s auth.SessionStore) *gin.Engine {
 		mgr.GET("/employees/:id", h.EmployeeProfile)
 	}
 
-	// Admin only: leave types, holidays, allocations.
+	// Admin only: general settings, leave types, holidays, allocations.
 	adm := app.Group("/admin", auth.RequireRole(auth.RoleAdmin))
 	{
 		adm.GET("", h.Admin)
+		adm.POST("/settings", h.SaveSettings)
 		adm.POST("/leave-types", h.CreateLeaveType)
 		adm.POST("/holidays", h.CreateHoliday)
 		adm.POST("/holidays/:id/delete", h.DeleteHoliday)

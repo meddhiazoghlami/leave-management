@@ -63,7 +63,14 @@ func (h *Handlers) CreateRequest(c *gin.Context) {
 		return
 	}
 
-	// Working days = weekdays in range minus any public holidays in that window.
+	// Working days = working weekdays in range minus any public holidays in that
+	// window. The working week comes from company settings now (config over
+	// code), so a Fri/Sat weekend is honoured here.
+	settings, err := h.Store.GetSettings(ctx)
+	if err != nil {
+		c.String(500, "load settings: %v", err)
+		return
+	}
 	holidays, err := h.Store.ListHolidaysInRange(ctx, start, end)
 	if err != nil {
 		c.String(500, "load holidays: %v", err)
@@ -73,7 +80,11 @@ func (h *Handlers) CreateRequest(c *gin.Context) {
 	for _, hol := range holidays {
 		dates = append(dates, hol.HolidayDate)
 	}
-	workingDays := leave.WorkingDays(start, end, leave.HolidaySet(dates))
+	week := leave.WorkingWeek(
+		settings.WorkMonday, settings.WorkTuesday, settings.WorkWednesday,
+		settings.WorkThursday, settings.WorkFriday, settings.WorkSaturday, settings.WorkSunday,
+	)
+	workingDays := leave.WorkingDays(start, end, week, leave.HolidaySet(dates))
 	if workingDays == 0 {
 		toast(c, "That range has no working days (weekends/holidays only).", "error")
 		c.Status(400)
@@ -81,7 +92,7 @@ func (h *Handlers) CreateRequest(c *gin.Context) {
 	}
 
 	reason := strings.TrimSpace(c.PostForm("reason"))
-	if _, err := h.Store.CreateLeaveRequest(ctx, emp.ID, typeID, start, end, int32(workingDays), reason); err != nil {
+	if _, err := h.Store.CreateLeaveRequest(ctx, emp.ID, typeID, start, end, float64(workingDays), reason); err != nil {
 		c.String(500, "create request: %v", err)
 		return
 	}

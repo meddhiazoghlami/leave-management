@@ -113,7 +113,7 @@ type CreateLeaveRequestParams struct {
 	LeaveTypeID int64
 	StartDate   time.Time
 	EndDate     time.Time
-	WorkingDays int32
+	WorkingDays float64
 	Reason      string
 }
 
@@ -123,7 +123,7 @@ type CreateLeaveRequestRow struct {
 	LeaveTypeID int64
 	StartDate   time.Time
 	EndDate     time.Time
-	WorkingDays int32
+	WorkingDays float64
 	Reason      string
 	Status      string
 	CreatedAt   time.Time
@@ -162,7 +162,7 @@ RETURNING id, name, default_days, color, created_at
 
 type CreateLeaveTypeParams struct {
 	Name        string
-	DefaultDays int32
+	DefaultDays float64
 	Color       string
 }
 
@@ -302,7 +302,7 @@ type GetLeaveRequestRow struct {
 	LeaveTypeID int64
 	StartDate   time.Time
 	EndDate     time.Time
-	WorkingDays int32
+	WorkingDays float64
 	Reason      string
 	Status      string
 	CreatedAt   time.Time
@@ -348,6 +348,37 @@ func (q *Queries) GetSessionEmployee(ctx context.Context, token string) (GetSess
 		&i.Employee.Role,
 		&i.Employee.ManagerID,
 		&i.Employee.CreatedAt,
+	)
+	return i, err
+}
+
+const getSettings = `-- name: GetSettings :one
+
+SELECT id, name, leave_year_start_month,
+       work_monday, work_tuesday, work_wednesday, work_thursday,
+       work_friday, work_saturday, work_sunday, updated_at
+FROM company_settings
+WHERE id = 1
+`
+
+// ─────────────────────────── company settings ────────────────────────────
+// The settings row is pinned to id = 1 (see migration 000003), so both queries
+// target it directly.
+func (q *Queries) GetSettings(ctx context.Context) (CompanySetting, error) {
+	row := q.db.QueryRow(ctx, getSettings)
+	var i CompanySetting
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.LeaveYearStartMonth,
+		&i.WorkMonday,
+		&i.WorkTuesday,
+		&i.WorkWednesday,
+		&i.WorkThursday,
+		&i.WorkFriday,
+		&i.WorkSaturday,
+		&i.WorkSunday,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -413,9 +444,9 @@ func (q *Queries) ListApprovedInRange(ctx context.Context, arg ListApprovedInRan
 const listBalances = `-- name: ListBalances :many
 
 SELECT lt.id AS leave_type_id, lt.name AS leave_type_name, lt.color AS leave_type_color,
-       COALESCE(a.days, 0)::int AS allocated,
-       COALESCE(u.used, 0)::int AS used,
-       (COALESCE(a.days, 0) - COALESCE(u.used, 0))::int AS remaining
+       COALESCE(a.days, 0)::numeric AS allocated,
+       COALESCE(u.used, 0)::numeric AS used,
+       (COALESCE(a.days, 0) - COALESCE(u.used, 0))::numeric AS remaining
 FROM leave_types lt
 LEFT JOIN leave_allocations a
        ON a.leave_type_id = lt.id
@@ -426,32 +457,43 @@ LEFT JOIN (
     FROM leave_requests
     WHERE employee_id = $1
       AND status = 'approved'
-      AND EXTRACT(YEAR FROM start_date)::int = $2::int
+      AND start_date BETWEEN $3::date AND $4::date
     GROUP BY leave_type_id
 ) u ON u.leave_type_id = lt.id
 ORDER BY lt.name
 `
 
 type ListBalancesParams struct {
-	EmployeeID int64
-	Year       int32
+	EmployeeID  int64
+	Year        int32
+	WindowStart time.Time
+	WindowEnd   time.Time
 }
 
 type ListBalancesRow struct {
 	LeaveTypeID    int64
 	LeaveTypeName  string
 	LeaveTypeColor string
-	Allocated      int32
-	Used           int32
-	Remaining      int32
+	Allocated      float64
+	Used           float64
+	Remaining      float64
 }
 
 // ──────────────────────────────── balances ───────────────────────────────
 // Per leave type: allocated days for the year minus days already used by
 // APPROVED requests in that year. LEFT JOINs so a type with no allocation and
 // no usage still shows up (as 0 / 0).
+// Per leave type: allocated days for the leave year minus days already used by
+// APPROVED requests whose start_date falls in that leave-year window. The
+// window (and the @year label that keys allocations) is computed in Go from
+// company_settings.leave_year_start_month, so a non-January leave year works.
 func (q *Queries) ListBalances(ctx context.Context, arg ListBalancesParams) ([]ListBalancesRow, error) {
-	rows, err := q.db.Query(ctx, listBalances, arg.EmployeeID, arg.Year)
+	rows, err := q.db.Query(ctx, listBalances,
+		arg.EmployeeID,
+		arg.Year,
+		arg.WindowStart,
+		arg.WindowEnd,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +686,7 @@ type ListPendingForManagerRow struct {
 	LeaveTypeColor string
 	StartDate      time.Time
 	EndDate        time.Time
-	WorkingDays    int32
+	WorkingDays    float64
 	Reason         string
 	CreatedAt      time.Time
 }
@@ -696,7 +738,7 @@ type ListRequestsByEmployeeRow struct {
 	LeaveTypeColor string
 	StartDate      time.Time
 	EndDate        time.Time
-	WorkingDays    int32
+	WorkingDays    float64
 	Reason         string
 	Status         string
 	CreatedAt      time.Time
@@ -751,6 +793,48 @@ func (q *Queries) SetRequestStatus(ctx context.Context, arg SetRequestStatusPara
 	return err
 }
 
+const updateSettings = `-- name: UpdateSettings :exec
+UPDATE company_settings
+SET name                   = $1,
+    leave_year_start_month = $2::int,
+    work_monday            = $3,
+    work_tuesday           = $4,
+    work_wednesday         = $5,
+    work_thursday          = $6,
+    work_friday            = $7,
+    work_saturday          = $8,
+    work_sunday            = $9,
+    updated_at             = now()
+WHERE id = 1
+`
+
+type UpdateSettingsParams struct {
+	Name                string
+	LeaveYearStartMonth int32
+	WorkMonday          bool
+	WorkTuesday         bool
+	WorkWednesday       bool
+	WorkThursday        bool
+	WorkFriday          bool
+	WorkSaturday        bool
+	WorkSunday          bool
+}
+
+func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error {
+	_, err := q.db.Exec(ctx, updateSettings,
+		arg.Name,
+		arg.LeaveYearStartMonth,
+		arg.WorkMonday,
+		arg.WorkTuesday,
+		arg.WorkWednesday,
+		arg.WorkThursday,
+		arg.WorkFriday,
+		arg.WorkSaturday,
+		arg.WorkSunday,
+	)
+	return err
+}
+
 const upsertAllocation = `-- name: UpsertAllocation :one
 
 INSERT INTO leave_allocations (employee_id, leave_type_id, year, days)
@@ -764,7 +848,7 @@ type UpsertAllocationParams struct {
 	EmployeeID  int64
 	LeaveTypeID int64
 	Year        int32
-	Days        int32
+	Days        float64
 }
 
 // ─────────────────────────── leave_allocations ───────────────────────────

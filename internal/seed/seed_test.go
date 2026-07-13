@@ -65,7 +65,11 @@ func TestRun_SeedsDemoOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEmployeeByEmail(sam): %v", err)
 	}
-	balances, err := st.ListBalances(ctx, sam.ID, int32(time.Now().Year()))
+	// Seed uses the default calendar leave year, so scope the window to this year.
+	year := int32(time.Now().Year())
+	wStart := time.Date(int(year), 1, 1, 0, 0, 0, 0, time.UTC)
+	wEnd := time.Date(int(year), 12, 31, 0, 0, 0, 0, time.UTC)
+	balances, err := st.ListBalances(ctx, sam.ID, year, wStart, wEnd)
 	if err != nil {
 		t.Fatalf("ListBalances: %v", err)
 	}

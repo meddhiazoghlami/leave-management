@@ -6,10 +6,13 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"log"
 
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
+	"github.com/meddhiazoghlami/leave-management/internal/migrate"
 	"github.com/meddhiazoghlami/leave-management/internal/server"
 	"github.com/meddhiazoghlami/leave-management/internal/store"
 
@@ -49,7 +52,17 @@ var StoreSet = wire.NewSet(
 // provideStore opens the connection pool from the loaded config and returns a
 // cleanup that closes it. Wire aggregates cleanups into the injector's returned
 // func, so callers just `defer cleanup()`.
+//
+// When cfg.AutoMigrate is set it first brings the schema up to date, so both
+// `serve` and `seed` "just work" against a fresh or out-of-date dev database.
+// This runs before store.New so no query ever hits a missing table.
 func provideStore(ctx context.Context, cfg config.Config) (*store.Store, func(), error) {
+	if cfg.AutoMigrate {
+		log.Print("AUTO_MIGRATE=true — applying any pending migrations")
+		if err := migrate.Up(cfg.DatabaseURL); err != nil {
+			return nil, nil, fmt.Errorf("auto-migrate: %w", err)
+		}
+	}
 	st, err := store.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return nil, nil, err

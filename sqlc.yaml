@@ -26,3 +26,8 @@ sql:
             go_type: "time.Time"
           - db_type: "date"
             go_type: "time.Time"
+          # Day counts are NUMERIC(6,2) (fractional days — see migration 000003).
+          # Every numeric column in this schema is a day count and NOT NULL, so
+          # map numeric straight to float64; pgx converts both directions.
+          - db_type: "pg_catalog.numeric"
+            go_type: "float64"

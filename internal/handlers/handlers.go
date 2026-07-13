@@ -12,6 +12,7 @@ import (
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/db"
+	"github.com/meddhiazoghlami/leave-management/internal/leave"
 	"github.com/meddhiazoghlami/leave-management/views"
 
 	"github.com/a-h/templ"
@@ -33,11 +34,11 @@ type Store interface {
 	DeleteSession(ctx context.Context, token string) error
 	// leave types
 	ListLeaveTypes(ctx context.Context) ([]db.LeaveType, error)
-	CreateLeaveType(ctx context.Context, name string, defaultDays int32, color string) (db.LeaveType, error)
+	CreateLeaveType(ctx context.Context, name string, defaultDays float64, color string) (db.LeaveType, error)
 	// allocations
-	UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year, days int32) (db.LeaveAllocation, error)
+	UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year int32, days float64) (db.LeaveAllocation, error)
 	// requests
-	CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays int32, reason string) (db.CreateLeaveRequestRow, error)
+	CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays float64, reason string) (db.CreateLeaveRequestRow, error)
 	GetLeaveRequest(ctx context.Context, id int64) (db.GetLeaveRequestRow, error)
 	ListRequestsByEmployee(ctx context.Context, employeeID int64) ([]db.ListRequestsByEmployeeRow, error)
 	ListPendingForManager(ctx context.Context, managerID int64) ([]db.ListPendingForManagerRow, error)
@@ -45,7 +46,7 @@ type Store interface {
 	SetRequestStatus(ctx context.Context, id int64, status string, decidedBy int64) error
 	CancelOwnRequest(ctx context.Context, id, employeeID int64) error
 	// balances
-	ListBalances(ctx context.Context, employeeID int64, year int32) ([]db.ListBalancesRow, error)
+	ListBalances(ctx context.Context, employeeID int64, year int32, windowStart, windowEnd time.Time) ([]db.ListBalancesRow, error)
 	// calendar
 	ListApprovedInRange(ctx context.Context, start, end time.Time) ([]db.ListApprovedInRangeRow, error)
 	// holidays
@@ -53,6 +54,9 @@ type Store interface {
 	ListHolidaysInRange(ctx context.Context, start, end time.Time) ([]db.PublicHoliday, error)
 	CreateHoliday(ctx context.Context, name string, date time.Time) (db.PublicHoliday, error)
 	DeleteHoliday(ctx context.Context, id int64) error
+	// settings
+	GetSettings(ctx context.Context) (db.CompanySetting, error)
+	UpdateSettings(ctx context.Context, name string, leaveYearStartMonth int32, mon, tue, wed, thu, fri, sat, sun bool) error
 	// health
 	Ping(ctx context.Context) error
 }
@@ -95,8 +99,18 @@ func (h *Handlers) navFor(c *gin.Context, active, title string) views.Nav {
 	return nav
 }
 
-// currentYear is the year balances/allocations are scoped to.
-func currentYear() int32 { return int32(time.Now().Year()) }
+// balanceScope loads company settings and derives, from today, the current
+// leave-year window used to sum approved usage plus the integer label that keys
+// per-year allocation rows. Balances, the profile page, and the allocation
+// admin all scope to the same window this way.
+func (h *Handlers) balanceScope(ctx context.Context) (year int32, windowStart, windowEnd time.Time, err error) {
+	s, err := h.Store.GetSettings(ctx)
+	if err != nil {
+		return 0, time.Time{}, time.Time{}, err
+	}
+	start, end, label := leave.LeaveYearWindow(time.Now(), int(s.LeaveYearStartMonth))
+	return int32(label), start, end, nil
+}
 
 // idParam parses a numeric ":id" route param.
 func idParam(c *gin.Context) (int64, bool) {

@@ -26,6 +26,7 @@ func TestLoad_FromEnvironment(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://u:p@localhost/db")
 	t.Setenv("ADDR", ":9999")
 	t.Setenv("VITE_DEV", "true")
+	t.Setenv("AUTO_MIGRATE", "true")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -40,6 +41,9 @@ func TestLoad_FromEnvironment(t *testing.T) {
 	if !cfg.ViteDev {
 		t.Error("ViteDev = false, want true")
 	}
+	if !cfg.AutoMigrate {
+		t.Error("AutoMigrate = false, want true")
+	}
 	if cfg.SessionTTL != 7*24*time.Hour {
 		t.Errorf("SessionTTL = %v, want 168h", cfg.SessionTTL)
 	}
@@ -48,7 +52,7 @@ func TestLoad_FromEnvironment(t *testing.T) {
 func TestLoad_Defaults(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DATABASE_URL", "postgres://x")
-	clearEnv(t, "ADDR", "VITE_DEV")
+	clearEnv(t, "ADDR", "VITE_DEV", "AUTO_MIGRATE")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -59,6 +63,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.ViteDev {
 		t.Error("ViteDev = true, want default false")
+	}
+	if cfg.AutoMigrate {
+		t.Error("AutoMigrate = true, want default false")
 	}
 }
 

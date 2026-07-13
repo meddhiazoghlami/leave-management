@@ -60,13 +60,13 @@ func (f *fakeStore) DeleteSession(context.Context, string) error { return f.e("D
 func (f *fakeStore) ListLeaveTypes(context.Context) ([]db.LeaveType, error) {
 	return nil, f.e("ListLeaveTypes")
 }
-func (f *fakeStore) CreateLeaveType(context.Context, string, int32, string) (db.LeaveType, error) {
+func (f *fakeStore) CreateLeaveType(context.Context, string, float64, string) (db.LeaveType, error) {
 	return db.LeaveType{}, f.e("CreateLeaveType")
 }
-func (f *fakeStore) UpsertAllocation(context.Context, int64, int64, int32, int32) (db.LeaveAllocation, error) {
+func (f *fakeStore) UpsertAllocation(context.Context, int64, int64, int32, float64) (db.LeaveAllocation, error) {
 	return db.LeaveAllocation{}, f.e("UpsertAllocation")
 }
-func (f *fakeStore) CreateLeaveRequest(context.Context, int64, int64, time.Time, time.Time, int32, string) (db.CreateLeaveRequestRow, error) {
+func (f *fakeStore) CreateLeaveRequest(context.Context, int64, int64, time.Time, time.Time, float64, string) (db.CreateLeaveRequestRow, error) {
 	return db.CreateLeaveRequestRow{}, f.e("CreateLeaveRequest")
 }
 func (f *fakeStore) GetLeaveRequest(context.Context, int64) (db.GetLeaveRequestRow, error) {
@@ -87,7 +87,7 @@ func (f *fakeStore) SetRequestStatus(context.Context, int64, string, int64) erro
 func (f *fakeStore) CancelOwnRequest(context.Context, int64, int64) error {
 	return f.e("CancelOwnRequest")
 }
-func (f *fakeStore) ListBalances(context.Context, int64, int32) ([]db.ListBalancesRow, error) {
+func (f *fakeStore) ListBalances(context.Context, int64, int32, time.Time, time.Time) ([]db.ListBalancesRow, error) {
 	return nil, f.e("ListBalances")
 }
 func (f *fakeStore) ListApprovedInRange(context.Context, time.Time, time.Time) ([]db.ListApprovedInRangeRow, error) {
@@ -103,7 +103,22 @@ func (f *fakeStore) CreateHoliday(context.Context, string, time.Time) (db.Public
 	return db.PublicHoliday{}, f.e("CreateHoliday")
 }
 func (f *fakeStore) DeleteHoliday(context.Context, int64) error { return f.e("DeleteHoliday") }
-func (f *fakeStore) Ping(context.Context) error                 { return f.e("Ping") }
+func (f *fakeStore) GetSettings(context.Context) (db.CompanySetting, error) {
+	// A Mon–Fri working week so the submit path computes > 0 working days and
+	// reaches the store call each fault case actually targets.
+	return db.CompanySetting{
+		LeaveYearStartMonth: 1,
+		WorkMonday:          true,
+		WorkTuesday:         true,
+		WorkWednesday:       true,
+		WorkThursday:        true,
+		WorkFriday:          true,
+	}, f.e("GetSettings")
+}
+func (f *fakeStore) UpdateSettings(context.Context, string, int32, bool, bool, bool, bool, bool, bool, bool) error {
+	return f.e("UpdateSettings")
+}
+func (f *fakeStore) Ping(context.Context) error { return f.e("Ping") }
 
 func faultRouter(f *fakeStore) http.Handler {
 	return server.New(handlers.New(f, config.Config{SessionTTL: time.Hour}), f)
@@ -151,6 +166,7 @@ func TestFaultBranches(t *testing.T) {
 			form("email", "a@b.test", "password", "password"), http.StatusInternalServerError},
 
 		// dashboard
+		{"dashboard settings fail", admin(), db.Employee{}, reqRow, []string{"GetSettings"}, "GET", "/", nil, http.StatusInternalServerError},
 		{"dashboard balances fail", admin(), db.Employee{}, reqRow, []string{"ListBalances"}, "GET", "/", nil, http.StatusInternalServerError},
 		{"dashboard requests fail", admin(), db.Employee{}, reqRow, []string{"ListRequestsByEmployee"}, "GET", "/", nil, http.StatusInternalServerError},
 
@@ -159,6 +175,7 @@ func TestFaultBranches(t *testing.T) {
 		{"requests types fail", admin(), db.Employee{}, reqRow, []string{"ListLeaveTypes"}, "GET", "/requests", nil, http.StatusInternalServerError},
 
 		// create request
+		{"create settings fail", admin(), db.Employee{}, reqRow, []string{"GetSettings"}, "POST", "/requests", validReqForm(), http.StatusInternalServerError},
 		{"create holidays fail", admin(), db.Employee{}, reqRow, []string{"ListHolidaysInRange"}, "POST", "/requests", validReqForm(), http.StatusInternalServerError},
 		{"create insert fail", admin(), db.Employee{}, reqRow, []string{"CreateLeaveRequest"}, "POST", "/requests", validReqForm(), http.StatusInternalServerError},
 		{"create reload fail", admin(), db.Employee{}, reqRow, []string{"ListRequestsByEmployee"}, "POST", "/requests", validReqForm(), http.StatusInternalServerError},
@@ -176,6 +193,7 @@ func TestFaultBranches(t *testing.T) {
 		// employees
 		{"employees list fail", manager(), db.Employee{}, reqRow, []string{"ListEmployees"}, "GET", "/employees", nil, http.StatusInternalServerError},
 		{"profile not found", admin(), db.Employee{}, reqRow, []string{"GetEmployee"}, "GET", "/employees/99", nil, http.StatusNotFound},
+		{"profile settings fail", admin(), report, reqRow, []string{"GetSettings"}, "GET", "/employees/99", nil, http.StatusInternalServerError},
 		{"profile balances fail", admin(), report, reqRow, []string{"ListBalances"}, "GET", "/employees/99", nil, http.StatusInternalServerError},
 		{"profile requests fail", admin(), report, reqRow, []string{"ListRequestsByEmployee"}, "GET", "/employees/99", nil, http.StatusInternalServerError},
 
@@ -183,6 +201,7 @@ func TestFaultBranches(t *testing.T) {
 		{"admin types fail", admin(), db.Employee{}, reqRow, []string{"ListLeaveTypes"}, "GET", "/admin", nil, http.StatusInternalServerError},
 		{"admin holidays fail", admin(), db.Employee{}, reqRow, []string{"ListHolidays"}, "GET", "/admin", nil, http.StatusInternalServerError},
 		{"admin employees fail", admin(), db.Employee{}, reqRow, []string{"ListEmployees"}, "GET", "/admin", nil, http.StatusInternalServerError},
+		{"admin settings fail", admin(), db.Employee{}, reqRow, []string{"GetSettings"}, "GET", "/admin", nil, http.StatusInternalServerError},
 
 		// admin mutations
 		{"create leave-type fail", admin(), db.Employee{}, reqRow, []string{"CreateLeaveType"}, "POST", "/admin/leave-types", form("name", "Sick"), http.StatusInternalServerError},
@@ -191,7 +210,10 @@ func TestFaultBranches(t *testing.T) {
 		{"create holiday reload fail", admin(), db.Employee{}, reqRow, []string{"ListHolidays"}, "POST", "/admin/holidays", form("name", "X", "holiday_date", "2026-01-01"), http.StatusInternalServerError},
 		{"delete holiday fail", admin(), db.Employee{}, reqRow, []string{"DeleteHoliday"}, "POST", "/admin/holidays/3/delete", nil, http.StatusInternalServerError},
 		{"delete holiday reload fail", admin(), db.Employee{}, reqRow, []string{"ListHolidays"}, "POST", "/admin/holidays/3/delete", nil, http.StatusInternalServerError},
+		{"set allocation settings fail", admin(), db.Employee{}, reqRow, []string{"GetSettings"}, "POST", "/admin/allocations", form("employee_id", "1", "leave_type_id", "1", "days", "5"), http.StatusInternalServerError},
 		{"set allocation fail", admin(), db.Employee{}, reqRow, []string{"UpsertAllocation"}, "POST", "/admin/allocations", form("employee_id", "1", "leave_type_id", "1", "days", "5"), http.StatusInternalServerError},
+		{"save settings fail", admin(), db.Employee{}, reqRow, []string{"UpdateSettings"}, "POST", "/admin/settings", form("name", "Acme", "leave_year_start_month", "4"), http.StatusInternalServerError},
+		{"save settings bad month", admin(), db.Employee{}, reqRow, nil, "POST", "/admin/settings", form("name", "Acme", "leave_year_start_month", "13"), http.StatusBadRequest},
 	}
 
 	for _, tc := range cases {

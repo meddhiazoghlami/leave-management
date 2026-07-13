@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func mkEmployee(t *testing.T, st *store.Store, name, email, role string, mgr *in
 	return emp.ID
 }
 
-func mkLeaveType(t *testing.T, st *store.Store, name string, days int32) int64 {
+func mkLeaveType(t *testing.T, st *store.Store, name string, days float64) int64 {
 	t.Helper()
 	lt, err := st.CreateLeaveType(ctx(), name, days, "#123456")
 	if err != nil {
@@ -198,7 +199,7 @@ func TestRequests_LifecycleAndDecisions(t *testing.T) {
 
 	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 2)                        // Wednesday -> 3 working days
-	days := int32(leave.WorkingDays(start, end, nil))
+	days := float64(leave.WorkingDays(start, end, leave.DefaultWorkingWeek(), nil))
 
 	req, err := st.CreateLeaveRequest(ctx(), empID, ltID, start, end, days, "trip")
 	if err != nil {
@@ -278,6 +279,9 @@ func TestListBalances_AllocatedUsedRemaining(t *testing.T) {
 	empID := mkEmployee(t, st, "Bal", "bal@x.test", "employee", nil)
 	ltID := mkLeaveType(t, st, "Annual", 25)
 	year := int32(2026)
+	// Calendar-year window (default leave year) matching year 2026.
+	wStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	wEnd := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 
 	if _, err := st.UpsertAllocation(ctx(), empID, ltID, year, 20); err != nil {
 		t.Fatalf("UpsertAllocation: %v", err)
@@ -286,13 +290,13 @@ func TestListBalances_AllocatedUsedRemaining(t *testing.T) {
 	// A 3-working-day approved request this year is counted as "used".
 	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC) // Monday
 	end := start.AddDate(0, 0, 2)                        // Wednesday
-	days := int32(leave.WorkingDays(start, end, nil))
+	days := float64(leave.WorkingDays(start, end, leave.DefaultWorkingWeek(), nil))
 	req, err := st.CreateLeaveRequest(ctx(), empID, ltID, start, end, days, "")
 	if err != nil {
 		t.Fatalf("CreateLeaveRequest: %v", err)
 	}
 	// Pending doesn't count yet.
-	balances, _ := st.ListBalances(ctx(), empID, year)
+	balances, _ := st.ListBalances(ctx(), empID, year, wStart, wEnd)
 	if b := findBalance(balances, ltID); b == nil || b.Used != 0 || b.Allocated != 20 || b.Remaining != 20 {
 		t.Fatalf("pending balance = %+v, want allocated 20 used 0 remaining 20", b)
 	}
@@ -301,7 +305,7 @@ func TestListBalances_AllocatedUsedRemaining(t *testing.T) {
 	if err := st.SetRequestStatus(ctx(), req.ID, "approved", empID); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	balances, err = st.ListBalances(ctx(), empID, year)
+	balances, err = st.ListBalances(ctx(), empID, year, wStart, wEnd)
 	if err != nil {
 		t.Fatalf("ListBalances: %v", err)
 	}
@@ -310,8 +314,25 @@ func TestListBalances_AllocatedUsedRemaining(t *testing.T) {
 		t.Fatalf("leave type %d missing from balances", ltID)
 	}
 	if b.Allocated != 20 || b.Used != days || b.Remaining != 20-days {
-		t.Fatalf("balance = {alloc %d used %d remaining %d}, want {20 %d %d}",
+		t.Fatalf("balance = {alloc %v used %v remaining %v}, want {20 %v %v}",
 			b.Allocated, b.Used, b.Remaining, days, 20-days)
+	}
+}
+
+// TestUpsertAllocation_FractionalDays covers the M1 requirement that day counts
+// are stored as fractions (NUMERIC(6,2)) and round-trip through the store —
+// e.g. 22 days/year ≈ 1.83 days/month.
+func TestUpsertAllocation_FractionalDays(t *testing.T) {
+	st := testsupport.NewStore(t)
+	empID := mkEmployee(t, st, "Frac", "frac@x.test", "employee", nil)
+	ltID := mkLeaveType(t, st, "Annual", 22)
+
+	a, err := st.UpsertAllocation(ctx(), empID, ltID, 2026, 1.83)
+	if err != nil {
+		t.Fatalf("UpsertAllocation: %v", err)
+	}
+	if math.Abs(a.Days-1.83) > 1e-9 {
+		t.Fatalf("fractional allocation Days = %v, want 1.83", a.Days)
 	}
 }
 

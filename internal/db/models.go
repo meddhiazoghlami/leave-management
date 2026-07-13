@@ -10,6 +10,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CompanySetting struct {
+	ID                  int32
+	Name                string
+	LeaveYearStartMonth int32
+	WorkMonday          bool
+	WorkTuesday         bool
+	WorkWednesday       bool
+	WorkThursday        bool
+	WorkFriday          bool
+	WorkSaturday        bool
+	WorkSunday          bool
+	UpdatedAt           time.Time
+}
+
 type Employee struct {
 	ID           int64
 	Name         string
@@ -25,7 +39,7 @@ type LeaveAllocation struct {
 	EmployeeID  int64
 	LeaveTypeID int64
 	Year        int32
-	Days        int32
+	Days        float64
 }
 
 type LeaveRequest struct {
@@ -34,7 +48,7 @@ type LeaveRequest struct {
 	LeaveTypeID int64
 	StartDate   time.Time
 	EndDate     time.Time
-	WorkingDays int32
+	WorkingDays float64
 	Reason      string
 	Status      string
 	DecidedBy   pgtype.Int8
@@ -45,7 +59,7 @@ type LeaveRequest struct {
 type LeaveType struct {
 	ID          int64
 	Name        string
-	DefaultDays int32
+	DefaultDays float64
 	Color       string
 	CreatedAt   time.Time
 }
