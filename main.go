@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/dzovi/leave-management/internal/cli"
+	"github.com/meddhiazoghlami/leave-management/internal/cli"
 )
 
 func main() {

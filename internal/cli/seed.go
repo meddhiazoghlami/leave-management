@@ -3,8 +3,9 @@ package cli
 import (
 	"log"
 
-	"github.com/dzovi/leave-management/internal/app"
-	"github.com/dzovi/leave-management/internal/seed"
+	"github.com/meddhiazoghlami/leave-management/internal/app"
+	"github.com/meddhiazoghlami/leave-management/internal/seed"
+
 	"github.com/spf13/cobra"
 )
 

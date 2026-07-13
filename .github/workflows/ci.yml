@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch/PR cancels the in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Reads the version from go.mod so CI can't drift from the toolchain.
+      # setup-go caches the module + build cache keyed on go.sum by default.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Generated code (templ/sqlc/wire) is committed, so no codegen tools are
+      # installed here — CI builds and tests exactly what's in the tree.
+      - name: Check formatting (gofmt)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted:"
+            echo "$unformatted"
+            echo "Run 'make fmt' (or 'gofmt -w .') and commit the result."
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      # ubuntu-latest ships Docker, so the testcontainers-backed integration and
+      # e2e suites run for real here (they'd t.Skip on a runner without Docker).
+      # -p 1 serialises the container-spinning packages (matches `make test`);
+      # -count=1 disables the test cache so CI always executes the suite.
+      - name: Test
+        run: go test -p 1 -count=1 ./...

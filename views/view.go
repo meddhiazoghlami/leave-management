@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dzovi/leave-management/internal/db"
+	"github.com/meddhiazoghlami/leave-management/internal/db"
 )
 
 // Nav is what the header needs on every authenticated page.

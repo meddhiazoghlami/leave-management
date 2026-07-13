@@ -103,12 +103,19 @@ seed: ## Seed demo data (employees, leave types, holidays, sample requests)
 check: generate vet test ## Regenerate, vet, and test — the pre-commit sweep
 
 .PHONY: test
-test: ## Run tests (the store integration test is skipped without a DB)
-	go test ./...
+test: ## Run all tests, incl. DB integration/e2e via testcontainers (needs Docker)
+	go test -p 1 ./...
 
-.PHONY: test-integration
-test-integration: ## Run all tests incl. the DB-gated store integration test
-	TEST_DATABASE_URL="$(DATABASE_URL)" go test ./...
+.PHONY: test-short
+test-short: ## Run only the fast unit tests (no Docker / no DB)
+	go test -short ./...
+
+.PHONY: cover
+cover: ## Full coverage run -> total + coverage.out + coverage.html (needs Docker)
+	go test -p 1 -count=1 -coverpkg=./... -covermode=atomic -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out | tail -1
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "✔ wrote coverage.out + coverage.html (open coverage.html for the line-by-line view)"
 
 .PHONY: vet
 vet: ## Run go vet

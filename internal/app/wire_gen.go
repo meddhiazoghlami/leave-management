@@ -8,10 +8,10 @@ package app
 
 import (
 	"context"
-	"github.com/dzovi/leave-management/internal/config"
-	"github.com/dzovi/leave-management/internal/handlers"
-	"github.com/dzovi/leave-management/internal/server"
-	"github.com/dzovi/leave-management/internal/store"
+	"github.com/meddhiazoghlami/leave-management/internal/config"
+	"github.com/meddhiazoghlami/leave-management/internal/handlers"
+	"github.com/meddhiazoghlami/leave-management/internal/server"
+	"github.com/meddhiazoghlami/leave-management/internal/store"
 )
 
 // Injectors from wire.go:

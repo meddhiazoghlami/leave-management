@@ -11,7 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"strconv"
 
-	"github.com/dzovi/leave-management/internal/db"
+	"github.com/meddhiazoghlami/leave-management/internal/db"
 )
 
 func ApprovalsPage(d ApprovalsData) templ.Component {

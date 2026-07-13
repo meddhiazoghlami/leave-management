@@ -9,7 +9,8 @@ package app
 import (
 	"context"
 
-	"github.com/dzovi/leave-management/internal/store"
+	"github.com/meddhiazoghlami/leave-management/internal/store"
+
 	"github.com/google/wire"
 )
 

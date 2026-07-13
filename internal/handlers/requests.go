@@ -5,9 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dzovi/leave-management/internal/auth"
-	"github.com/dzovi/leave-management/internal/leave"
-	"github.com/dzovi/leave-management/views"
+	"github.com/meddhiazoghlami/leave-management/internal/auth"
+	"github.com/meddhiazoghlami/leave-management/internal/leave"
+	"github.com/meddhiazoghlami/leave-management/views"
+
 	"github.com/gin-gonic/gin"
 )
 

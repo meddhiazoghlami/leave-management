@@ -13,17 +13,31 @@ import (
 	"log"
 	"time"
 
-	"github.com/dzovi/leave-management/internal/auth"
-	"github.com/dzovi/leave-management/internal/db"
-	"github.com/dzovi/leave-management/internal/leave"
-	"github.com/dzovi/leave-management/internal/store"
+	"github.com/meddhiazoghlami/leave-management/internal/auth"
+	"github.com/meddhiazoghlami/leave-management/internal/db"
+	"github.com/meddhiazoghlami/leave-management/internal/leave"
 )
+
+// Store is the subset of the data layer the seeder needs. Declared here
+// (consumer-side) so seeding depends on an interface — the concrete *store.Store
+// satisfies it — which keeps its error branches testable via a fake.
+type Store interface {
+	GetEmployeeByEmail(ctx context.Context, email string) (db.Employee, error)
+	CreateEmployee(ctx context.Context, name, email, passwordHash, role string, managerID *int64) (db.Employee, error)
+	ListLeaveTypes(ctx context.Context) ([]db.LeaveType, error)
+	CreateLeaveType(ctx context.Context, name string, defaultDays int32, color string) (db.LeaveType, error)
+	UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year, days int32) (db.LeaveAllocation, error)
+	ListHolidays(ctx context.Context) ([]db.PublicHoliday, error)
+	CreateHoliday(ctx context.Context, name string, date time.Time) (db.PublicHoliday, error)
+	ListRequestsByEmployee(ctx context.Context, employeeID int64) ([]db.ListRequestsByEmployeeRow, error)
+	CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays int32, reason string) (db.CreateLeaveRequestRow, error)
+}
 
 // Password is shared by every seeded account.
 const Password = "password"
 
 // Run seeds the demo org. Safe to run repeatedly.
-func Run(ctx context.Context, st *store.Store) error {
+func Run(ctx context.Context, st Store) error {
 	hash, err := auth.HashPassword(Password)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
@@ -91,7 +105,7 @@ func Run(ctx context.Context, st *store.Store) error {
 	return nil
 }
 
-func ensureEmployee(ctx context.Context, st *store.Store, name, email, hash, role string, managerID *int64) (db.Employee, error) {
+func ensureEmployee(ctx context.Context, st Store, name, email, hash, role string, managerID *int64) (db.Employee, error) {
 	if emp, err := st.GetEmployeeByEmail(ctx, email); err == nil {
 		return emp, nil
 	}
@@ -103,7 +117,7 @@ func ensureEmployee(ctx context.Context, st *store.Store, name, email, hash, rol
 	return emp, nil
 }
 
-func ensureLeaveTypes(ctx context.Context, st *store.Store) ([]db.LeaveType, error) {
+func ensureLeaveTypes(ctx context.Context, st Store) ([]db.LeaveType, error) {
 	existing, err := st.ListLeaveTypes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list leave types: %w", err)
@@ -132,7 +146,7 @@ func ensureLeaveTypes(ctx context.Context, st *store.Store) ([]db.LeaveType, err
 	return out, nil
 }
 
-func ensureHolidays(ctx context.Context, st *store.Store, year int) error {
+func ensureHolidays(ctx context.Context, st Store, year int) error {
 	existing, err := st.ListHolidays(ctx)
 	if err != nil {
 		return fmt.Errorf("list holidays: %w", err)
@@ -166,7 +180,7 @@ func ensureHolidays(ctx context.Context, st *store.Store, year int) error {
 	return nil
 }
 
-func ensureSampleRequest(ctx context.Context, st *store.Store, emp db.Employee, t db.LeaveType, start, end time.Time) error {
+func ensureSampleRequest(ctx context.Context, st Store, emp db.Employee, t db.LeaveType, start, end time.Time) error {
 	if reqs, _ := st.ListRequestsByEmployee(ctx, emp.ID); len(reqs) > 0 {
 		return nil // already has requests — don't pile on more each run
 	}

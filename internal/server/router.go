@@ -4,15 +4,16 @@
 package server
 
 import (
-	"github.com/dzovi/leave-management/internal/auth"
-	"github.com/dzovi/leave-management/internal/handlers"
-	"github.com/dzovi/leave-management/internal/store"
+	"github.com/meddhiazoghlami/leave-management/internal/auth"
+	"github.com/meddhiazoghlami/leave-management/internal/handlers"
+
 	"github.com/gin-gonic/gin"
 )
 
-// New builds the Gin engine. The store is needed both by the handlers and by
-// the RequireAuth middleware (to resolve session cookies).
-func New(h *handlers.Handlers, s *store.Store) *gin.Engine {
+// New builds the Gin engine. The session store is needed by the RequireAuth
+// middleware to resolve session cookies; the handlers already carry their own
+// store. Both are satisfied by the concrete *store.Store at wire time.
+func New(h *handlers.Handlers, s auth.SessionStore) *gin.Engine {
 	r := gin.Default()
 
 	// Vite build output (Phase 8). Unused in dev, where assets come from :5173.

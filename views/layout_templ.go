@@ -11,7 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"strconv"
 
-	"github.com/dzovi/leave-management/assets"
+	"github.com/meddhiazoghlami/leave-management/assets"
 )
 
 // head is shared by the app layout and the standalone login page so the Vite

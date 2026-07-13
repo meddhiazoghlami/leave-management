@@ -7,10 +7,12 @@ package app
 import (
 	"context"
 
-	"github.com/dzovi/leave-management/internal/config"
-	"github.com/dzovi/leave-management/internal/handlers"
-	"github.com/dzovi/leave-management/internal/server"
-	"github.com/dzovi/leave-management/internal/store"
+	"github.com/meddhiazoghlami/leave-management/internal/auth"
+	"github.com/meddhiazoghlami/leave-management/internal/config"
+	"github.com/meddhiazoghlami/leave-management/internal/handlers"
+	"github.com/meddhiazoghlami/leave-management/internal/server"
+	"github.com/meddhiazoghlami/leave-management/internal/store"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 )
@@ -24,10 +26,14 @@ type App struct {
 }
 
 // ProviderSet is the full dependency graph: config → store → handlers → router,
-// assembled into an App. Wire resolves the order by matching types.
+// assembled into an App. Wire resolves the order by matching types. The two
+// wire.Bind lines teach Wire that the concrete *store.Store satisfies the
+// consumer-side interfaces handlers.New and server.New now ask for.
 var ProviderSet = wire.NewSet(
 	config.Load,
 	provideStore,
+	wire.Bind(new(handlers.Store), new(*store.Store)),
+	wire.Bind(new(auth.SessionStore), new(*store.Store)),
 	handlers.New,
 	server.New,
 	wire.Struct(new(App), "*"),

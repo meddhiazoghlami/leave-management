@@ -12,7 +12,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/dzovi/leave-management/internal/db"
+	"github.com/meddhiazoghlami/leave-management/internal/db"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

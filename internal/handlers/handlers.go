@@ -4,25 +4,66 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"time"
 
+	"github.com/meddhiazoghlami/leave-management/internal/auth"
+	"github.com/meddhiazoghlami/leave-management/internal/config"
+	"github.com/meddhiazoghlami/leave-management/internal/db"
+	"github.com/meddhiazoghlami/leave-management/views"
+
 	"github.com/a-h/templ"
-	"github.com/dzovi/leave-management/internal/auth"
-	"github.com/dzovi/leave-management/internal/config"
-	"github.com/dzovi/leave-management/internal/store"
-	"github.com/dzovi/leave-management/views"
 	"github.com/gin-gonic/gin"
 )
 
+// Store is the data layer as the HTTP handlers consume it — every store method a
+// handler calls, and nothing more. Declared consumer-side (rather than importing
+// the concrete *store.Store) so handlers can be unit-tested with a fake and have
+// their error branches exercised via fault injection. The concrete *store.Store
+// satisfies this; Wire binds the two (see internal/app).
+type Store interface {
+	// employees
+	GetEmployeeByEmail(ctx context.Context, email string) (db.Employee, error)
+	GetEmployee(ctx context.Context, id int64) (db.Employee, error)
+	ListEmployees(ctx context.Context, managerID int64) ([]db.ListEmployeesRow, error)
+	// sessions
+	CreateSession(ctx context.Context, token string, employeeID int64, expiresAt time.Time) (db.Session, error)
+	DeleteSession(ctx context.Context, token string) error
+	// leave types
+	ListLeaveTypes(ctx context.Context) ([]db.LeaveType, error)
+	CreateLeaveType(ctx context.Context, name string, defaultDays int32, color string) (db.LeaveType, error)
+	// allocations
+	UpsertAllocation(ctx context.Context, employeeID, leaveTypeID int64, year, days int32) (db.LeaveAllocation, error)
+	// requests
+	CreateLeaveRequest(ctx context.Context, employeeID, leaveTypeID int64, start, end time.Time, workingDays int32, reason string) (db.CreateLeaveRequestRow, error)
+	GetLeaveRequest(ctx context.Context, id int64) (db.GetLeaveRequestRow, error)
+	ListRequestsByEmployee(ctx context.Context, employeeID int64) ([]db.ListRequestsByEmployeeRow, error)
+	ListPendingForManager(ctx context.Context, managerID int64) ([]db.ListPendingForManagerRow, error)
+	CountPendingForManager(ctx context.Context, managerID int64) (int64, error)
+	SetRequestStatus(ctx context.Context, id int64, status string, decidedBy int64) error
+	CancelOwnRequest(ctx context.Context, id, employeeID int64) error
+	// balances
+	ListBalances(ctx context.Context, employeeID int64, year int32) ([]db.ListBalancesRow, error)
+	// calendar
+	ListApprovedInRange(ctx context.Context, start, end time.Time) ([]db.ListApprovedInRangeRow, error)
+	// holidays
+	ListHolidays(ctx context.Context) ([]db.PublicHoliday, error)
+	ListHolidaysInRange(ctx context.Context, start, end time.Time) ([]db.PublicHoliday, error)
+	CreateHoliday(ctx context.Context, name string, date time.Time) (db.PublicHoliday, error)
+	DeleteHoliday(ctx context.Context, id int64) error
+	// health
+	Ping(ctx context.Context) error
+}
+
 // Handlers bundles the dependencies every route needs.
 type Handlers struct {
-	Store *store.Store
+	Store Store
 	Cfg   config.Config
 }
 
-func New(s *store.Store, cfg config.Config) *Handlers {
+func New(s Store, cfg config.Config) *Handlers {
 	return &Handlers{Store: s, Cfg: cfg}
 }
 

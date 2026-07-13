@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/dzovi/leave-management/assets"
-	"github.com/dzovi/leave-management/internal/app"
+	"github.com/meddhiazoghlami/leave-management/assets"
+	"github.com/meddhiazoghlami/leave-management/internal/app"
+
 	"github.com/spf13/cobra"
 )
 

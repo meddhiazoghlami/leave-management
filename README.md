@@ -1,5 +1,7 @@
 # Leave Management
 
+[![CI](github.com/meddhiazoghlami/leave-management/actions/workflows/ci.yml/badge.svg)](github.com/meddhiazoghlami/leave-management/actions/workflows/ci.yml)
+
 A small but complete **employee leave-management** web app: employees request leave, managers approve or reject, balances are tracked per leave type, and there's a team calendar and an admin area for leave types, allocations, and public holidays.
 
 It was built as a **progressive learning project** — each phase (0–8) introduced exactly one piece of the stack on "hello dzovi" demos, and **Phase 9** assembles all of it into this real app. See [`docs/learning/phases.md`](docs/learning/phases.md) for the roadmap and [`docs/learning/learning.md`](docs/learning/learning.md) for the per-phase write-ups.

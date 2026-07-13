@@ -42,3 +42,47 @@ func TestWorkingDays(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkingDays_TimeOfDayIgnored confirms only the calendar date matters: the
+// same day at different clock times still counts as one working day, and the
+// holiday match ignores the time component.
+func TestWorkingDays_TimeOfDayIgnored(t *testing.T) {
+	start := time.Date(2026, 1, 5, 23, 30, 0, 0, time.UTC) // Mon late evening
+	end := time.Date(2026, 1, 5, 1, 0, 0, 0, time.UTC)     // same Mon early morning
+	if got := WorkingDays(start, end, nil); got != 1 {
+		t.Fatalf("same-day (different clock times) = %d, want 1", got)
+	}
+
+	// A holiday supplied with a time-of-day still matches the date-only key.
+	hol := HolidaySet([]time.Time{time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)})
+	if got := WorkingDays(date("2026-01-05"), date("2026-01-05"), hol); got != 0 {
+		t.Fatalf("holiday with clock time not excluded, got %d want 0", got)
+	}
+}
+
+// TestHolidaySet dedupes by calendar date and ignores weekends' relevance (a
+// holiday on a weekend simply never affects the count).
+func TestHolidaySet(t *testing.T) {
+	set := HolidaySet([]time.Time{
+		time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 20, 0, 0, 0, time.UTC), // same date, different time
+		date("2026-01-02"),
+	})
+	if len(set) != 2 {
+		t.Fatalf("HolidaySet size = %d, want 2 (deduped)", len(set))
+	}
+	if !set["2026-01-01"] || !set["2026-01-02"] {
+		t.Fatalf("expected both dates present, got %v", set)
+	}
+
+	// A holiday that lands on a Saturday doesn't change a Mon–Fri count.
+	satHoliday := HolidaySet([]time.Time{date("2026-01-03")}) // Sat
+	if got := WorkingDays(date("2026-01-05"), date("2026-01-09"), satHoliday); got != 5 {
+		t.Fatalf("weekend holiday affected weekday count: got %d want 5", got)
+	}
+
+	// An empty input yields an empty (non-nil) set.
+	if s := HolidaySet(nil); s == nil || len(s) != 0 {
+		t.Fatalf("HolidaySet(nil) = %v, want empty non-nil", s)
+	}
+}

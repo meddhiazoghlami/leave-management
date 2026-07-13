@@ -1,12 +1,21 @@
 package auth
 
 import (
+	"context"
 	"slices"
 
-	"github.com/dzovi/leave-management/internal/db"
-	"github.com/dzovi/leave-management/internal/store"
+	"github.com/meddhiazoghlami/leave-management/internal/db"
+
 	"github.com/gin-gonic/gin"
 )
+
+// SessionStore is the slice of the data layer RequireAuth needs: resolve a
+// session token to its employee. Declared here (consumer-side) so the middleware
+// depends on a one-method interface rather than the concrete *store.Store, which
+// keeps it unit-testable with a fake and avoids an import of package store.
+type SessionStore interface {
+	GetSessionEmployee(ctx context.Context, token string) (db.Employee, error)
+}
 
 // Role values stored in employees.role.
 const (
@@ -40,7 +49,7 @@ func MustEmployee(c *gin.Context) db.Employee {
 // RequireAuth resolves the session cookie to an employee and stores it on the
 // context, or bounces to /login. It short-circuits (no DB call) when there's no
 // cookie — which keeps the unauthenticated path cheap and testable.
-func RequireAuth(s *store.Store) gin.HandlerFunc {
+func RequireAuth(s SessionStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, err := c.Cookie(CookieName)
 		if err != nil || token == "" {

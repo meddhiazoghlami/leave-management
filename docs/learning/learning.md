@@ -74,7 +74,7 @@ func main() {
 ### Commands cheat-sheet
 
 ```bash
-go mod init github.com/dzovi/leave-management  # once, at project start
+go mod init github.com/meddhiazoghlami/leave-management  # once, at project start
 go get github.com/gin-gonic/gin                # add a dependency
 go mod tidy                                     # clean up indirect/unused deps
 go run .                                        # compile + run from current dir
@@ -181,7 +181,7 @@ Key design choices:
 - import "github.com/gin-gonic/gin"
 + import (
 +   "time"
-+   "github.com/dzovi/leave-management/views"
++   "github.com/meddhiazoghlami/leave-management/views"
 +   "github.com/gin-gonic/gin"
 + )
 
@@ -870,6 +870,197 @@ TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/store/   # + sqlc integrati
 #   templ generate  (.templ changed)
 #   npm run build   (assets/new Tailwind classes)
 #   go build ./...
+```
+
+---
+
+## Phase 10 — Put the whole stack under test (testcontainers + a real safety net)
+
+Before evolving the app toward configurable, Odoo-style policy (see `docs/next-steps.md`),
+the goal was a **safety net**: prove every layer works today so future refactors have
+something to break loudly against. Target: *comfortably past 95% of the hand-written code.*
+
+### The problem: how do integration/e2e tests get a Postgres?
+
+The store, handlers, seed and `RequireAuth` all run **real SQL** through sqlc/pgx
+(`EXTRACT(YEAR ...)`, `UPSERT`, `LEFT JOIN … COALESCE`). Mocking sqlc would test a mock,
+not the schema. So the tests need an actual Postgres — but one that:
+- runs on `go test` with no manual "start a DB and set `TEST_DATABASE_URL`" ceremony,
+- is disposable and identical for everyone (and CI),
+- applies the **real** `sql/migrations` so tests bind to the true schema.
+
+### Tech: testcontainers-go (throwaway Postgres in Docker)
+
+`internal/testsupport` boots `postgres:16-alpine` in a container, feeds the migration
+`*.up.sql` files in as **init scripts** (Postgres runs them on first boot — handles
+multi-statement DDL that pgx's extended protocol won't), and hands back a live
+`*store.Store`. One container per test **binary** (lazy `sync.Once`), each test
+`TRUNCATE … RESTART IDENTITY` for isolation. If Docker is down it `t.Skip`s (and
+`-short` skips all DB tests), so the unit suite still runs anywhere in ~4s.
+
+### New concept: consumer-side interfaces as test seams
+
+Handlers, middleware and seed took a *concrete* `*store.Store`, so their error branches
+(`c.String(500, …)`) were unreachable without breaking a real DB mid-request. Fix: each
+consumer now declares the **narrow interface it actually uses** —
+`handlers.Store` (22 methods), `auth.SessionStore` (1), `seed.Store` (9) — and the
+concrete store satisfies all three. Two payoffs:
+- a **fake store** can return `boom` on any single method, so every 500/503/404 branch
+  is drivable through the real router (`fault_test.go`);
+- Wire still assembles the app — two `wire.Bind(new(handlers.Store), new(*store.Store))`
+  lines teach it the concrete type fills the interface. `make generate` stays green.
+
+### The testing pyramid that resulted
+
+| Level | Where | How |
+|---|---|---|
+| **Unit** | `leave`, `config`, `auth`, plus each handler's error paths | pure funcs + table tests; `httptest` for cookies/middleware; fake store for faults |
+| **Integration** | `store`, `seed` | every method against the container DB (drives generated `db` too) |
+| **E2E** | `handlers` + `server` + `views` | real Gin router + real DB + real session cookies; every route, role gate, 400/403/404 |
+
+### What changed in the code (diff)
+
+- **New:** `internal/testsupport/postgres.go` (the harness), `*_test.go` across
+  `leave/config/auth/store/seed/handlers/cli/assets` and `main`, plus a `fault_test.go`
+  fake in `handlers` and `seed`.
+- **Seams:** `handlers.Store`, `auth.SessionStore`, `seed.Store` interfaces;
+  `handlers.New` / `server.New` / `seed.Run` take interfaces; `wire.Bind` in `internal/app`.
+- **Tooling:** `make test` (`-p 1`, full incl. Docker), `make test-short` (unit only),
+  `make cover` (`-count=1`, writes `coverage.out` + `coverage.html`).
+
+### What I observed
+
+- **Hand-written coverage: ~96.5%.** 7 packages at 100% (`leave`, `config`, `store`,
+  `server`, `cli`, `app`, `assets`), `handlers` 99.6%, `auth`/`seed` ~97%.
+- **Total incl. generated code: ~77%.** The gap is *not* untested logic — it's
+  **unreachable branches**: every templ write emits `if err != nil { return err }` that
+  can't fire against a buffer (`views` ~76%); sqlc's row-scan error paths (`db` ~89%);
+  `main`'s `os.Exit(1)`; `NewToken`'s `crypto/rand` failure. That's the honest ceiling.
+- **Parallel containers bite.** `go test ./...` runs package binaries concurrently → 4
+  Postgres + 4 Ryuk containers at once → Docker Desktop chokes and some DB tests
+  *silently skip* (a skip isn't a failure). `-p 1` serialises them; coverage must also be
+  `-count=1` or a stale cached (flaky) profile lies to you.
+
+### Value added
+
+1. **A real regression net.** The M0/M1 refactor in `next-steps.md` (make `WorkingDays`
+   configurable, change the leave-year window) now has ~140 assertions watching it.
+2. **The refactor paid forward.** The interface seams aren't just for tests — they're the
+   clean extension points the roadmap's new stores/services will plug into.
+3. **`go test ./...` "just works."** No DB to install, no env var to remember; Docker is
+   the only prerequisite, and its absence downgrades gracefully to the unit suite.
+
+### Trade-offs / new pain
+
+- **Docker is now a test dependency.** Full coverage needs a running daemon; `-short`
+  is the escape hatch (and what a fast pre-commit hook should use).
+- **`-p 1` trades speed for reliability.** Serialising the ~4 container-spinning packages
+  costs a few seconds but removes the flaky-skip; worth it.
+- **Generated code caps the *total* number.** Chasing the last ~18% would mean testing
+  templ/sqlc's own error handling — low value. The meaningful figure is hand-written %.
+- **One more interface per consumer.** `handlers.Store` lists 22 methods; it's boilerplate
+  to keep in sync when a handler calls a new store method — but it's what makes the
+  handler layer unit-testable at all.
+
+### Commands cheat-sheet (additions)
+
+```bash
+make test         # everything incl. DB integration/e2e via testcontainers (needs Docker)
+make test-short   # fast unit-only suite, no Docker
+make cover        # fresh full run -> prints total, writes coverage.out + coverage.html
+
+# The honest hand-written number (excludes generated templ/sqlc/wire):
+go test -p 1 -count=1 -coverpkg=./... -coverprofile=coverage.out ./...
+grep -vE '_templ\.go:|/internal/db/|wire_gen\.go:' coverage.out > /tmp/hand.out   # keep the `mode:` header
+go tool cover -func=/tmp/hand.out | tail -1
+```
+
+---
+
+## Phase 11 — Continuous integration (GitHub Actions)
+
+Phase 10 built a test suite that was "disposable and identical for everyone (and CI)" —
+but nothing actually *ran* it on every change yet. This phase closes that loop: every push
+to `main` and every PR now builds, vets, formats-checks and runs the full suite on a clean
+machine, so a broken commit is caught before it's merged instead of on the next `git pull`.
+
+### Tech: GitHub Actions
+
+A single workflow, `.github/workflows/ci.yml`, defines one `build-test` job on
+`ubuntu-latest`. A workflow is YAML: `on:` says *when* (push/PR to `main`), `jobs:` say
+*what*, and each `steps:` entry is either a reusable **action** (`uses:`) or a shell command
+(`run:`). Two actions do the heavy lifting — `actions/checkout` clones the repo and
+`actions/setup-go` installs Go and restores the module/build cache.
+
+### What the workflow does
+
+| Step | Command | Why |
+|---|---|---|
+| **Setup** | `setup-go` with `go-version-file: go.mod` | CI can't drift from the toolchain — the version comes from `go.mod` (1.25.5), not a hardcoded string |
+| **Format** | `gofmt -l .` (fail if non-empty) | a formatting gate; mirrors `make fmt` |
+| **Vet** | `go vet ./...` | cheap static checks |
+| **Build** | `go build ./...` | everything compiles |
+| **Test** | `go test -p 1 -count=1 ./...` | the full pyramid, incl. the testcontainers DB tests |
+
+### The key realisation: CI is where the testcontainers bet pays off
+
+The Phase 10 harness `t.Skip`s when Docker is unreachable — locally that's a graceful
+downgrade to the unit suite. **`ubuntu-latest` ships a Docker daemon**, so the *same* skip
+logic means the integration + e2e tests run **for real** in CI without any service
+containers, DSNs or secrets to wire up. The suite that "just works" on a laptop also "just
+works" on a fresh runner — that's the whole payoff of booting Postgres from inside the test.
+
+Because the generated code (templ/sqlc/wire) is **committed**, CI installs none of those
+tools — it builds and tests exactly what's in the tree. And with no `go:embed` of the Vite
+output, the Go build needs no Node step at all; the front-end bundle isn't in the binary.
+
+### What changed in the code (diff)
+
+- **New:** `.github/workflows/ci.yml` — the entire feature is this one file.
+- **Fixups:** ran `gofmt -w` on two new test files (`handlers/e2e_test.go`,
+  `handlers/fault_test.go`) that had mis-aligned comments — otherwise the format gate would
+  have gone red on its first run.
+
+### What I observed
+
+- **`-p 1 -count=1` matters as much in CI as locally.** `-p 1` serialises the
+  container-spinning packages (same reason as Phase 10); `-count=1` disables the test cache
+  so a green check always means the suite *actually executed*, not "inputs unchanged".
+- **`go-version-file` beats a pinned string.** One source of truth (`go.mod`); bumping Go is
+  a one-line change that the toolchain and CI both follow.
+- **`concurrency: cancel-in-progress`** stops a rapid second push from wasting a runner on
+  the now-stale first commit.
+
+### Value added
+
+1. **The safety net is now automatic.** Phase 10's ~140 assertions guard the `next-steps.md`
+   refactors on *every* PR, not just when someone remembers to run `make test`.
+2. **Zero-config DB tests in CI.** No Postgres service, no secrets — testcontainers +
+   Docker-on-the-runner means the integration suite is truly portable.
+3. **A visible green/red signal** on every commit and PR, backed by the real schema.
+
+### Trade-offs / new pain
+
+- **CI is minutes, not seconds.** Pulling `postgres:16-alpine` and booting containers per
+  package dominates the run; acceptable for a merge gate, but a fast pre-commit hook should
+  still use `make test-short`.
+- **No "is generated code stale?" guard yet.** CI trusts the committed templ/sqlc/wire
+  output. Catching a forgotten `make generate` would mean installing those tools and
+  `git diff`-ing after a regen — a worthwhile future step, left out to keep CI lean.
+- **The Docker image isn't cached** between runs, so it's re-pulled each time. Fine for now.
+
+### Commands cheat-sheet (additions)
+
+```bash
+# Reproduce the CI checks locally before pushing:
+gofmt -l .              # must print nothing
+go vet ./...
+go build ./...
+go test -p 1 -count=1 ./...   # == the CI test step (needs Docker for the full suite)
+
+# Watch the run after pushing (GitHub CLI):
+gh run watch
+gh run list --workflow=ci.yml
 ```
 
 
