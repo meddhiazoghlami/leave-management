@@ -6,6 +6,8 @@ import (
 
 	"github.com/meddhiazoghlami/leave-management/assets"
 	"github.com/meddhiazoghlami/leave-management/internal/app"
+	"github.com/meddhiazoghlami/leave-management/internal/bootstrap"
+	"github.com/meddhiazoghlami/leave-management/internal/mailer"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +27,21 @@ var serveCmd = &cobra.Command{
 
 		// Best-effort cleanup of expired sessions on boot.
 		_ = application.Store.DeleteExpiredSessions(ctx)
+
+		// Ensure the admin + HR accounts exist, mailing each a random password on
+		// first creation. The mailer is built lazily (only if an account is
+		// actually missing), so an already-provisioned deployment needs no SMTP.
+		cfg := application.Config
+		newMailer := func() (bootstrap.Mailer, error) {
+			return mailer.NewSMTP(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
+		}
+		if err := bootstrap.Run(ctx, application.Store, bootstrap.Options{
+			AdminEmail: cfg.BootstrapAdminEmail,
+			HREmail:    cfg.BootstrapHREmail,
+			BaseURL:    cfg.BaseURL,
+		}, newMailer); err != nil {
+			return err
+		}
 
 		// Phase 8: dev mode (VITE_DEV=true) points the layout at the Vite dev
 		// server for HMR; otherwise we read the built manifest.

@@ -20,13 +20,13 @@ func TestRun_SeedsDemoOrg(t *testing.T) {
 		t.Fatalf("seed.Run: %v", err)
 	}
 
-	// 5 employees: admin, manager, and three reports.
+	// 6 employees: admin, manager, HR, and three reports.
 	emps, err := st.ListEmployees(ctx, 0)
 	if err != nil {
 		t.Fatalf("ListEmployees: %v", err)
 	}
-	if len(emps) != 5 {
-		t.Fatalf("employees = %d, want 5", len(emps))
+	if len(emps) != 6 {
+		t.Fatalf("employees = %d, want 6", len(emps))
 	}
 
 	// 3 leave types.
@@ -91,7 +91,7 @@ func TestRun_SeedsDemoOrg(t *testing.T) {
 	types2, _ := st.ListLeaveTypes(ctx)
 	holidays2, _ := st.ListHolidays(ctx)
 	pending2, _ := st.CountPendingForManager(ctx, manager.ID)
-	if len(emps2) != 5 || len(types2) != 3 || len(holidays2) != 5 || pending2 != 2 {
+	if len(emps2) != 6 || len(types2) != 3 || len(holidays2) != 5 || pending2 != 2 {
 		t.Fatalf("second run changed counts: emps %d types %d holidays %d pending %d",
 			len(emps2), len(types2), len(holidays2), pending2)
 	}

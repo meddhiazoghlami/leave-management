@@ -59,9 +59,10 @@ func (h *Handlers) decide(c *gin.Context, status, msg, kind string) {
 }
 
 // canDecide reports whether decider may approve/reject a request owned by
-// requesterID: admins can decide anything; managers only their direct reports.
+// requesterID: admins and HR can decide anything; managers only their direct
+// reports.
 func (h *Handlers) canDecide(c *gin.Context, decider db.Employee, requesterID int64) bool {
-	if decider.Role == auth.RoleAdmin {
+	if auth.IsAdminLevel(decider.Role) {
 		return true
 	}
 	requester, err := h.Store.GetEmployee(c.Request.Context(), requesterID)

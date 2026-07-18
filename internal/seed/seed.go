@@ -52,6 +52,10 @@ func Run(ctx context.Context, st Store) error {
 	if err != nil {
 		return err
 	}
+	// HR sits under admin in the org tree but has org-wide access (mirrors admin).
+	if _, err := ensureEmployee(ctx, st, "Hana HR", "hr@acme.test", hash, auth.RoleHR, &admin.ID); err != nil {
+		return err
+	}
 	sam, err := ensureEmployee(ctx, st, "Sam Employee", "sam@acme.test", hash, auth.RoleEmployee, &manager.ID)
 	if err != nil {
 		return err

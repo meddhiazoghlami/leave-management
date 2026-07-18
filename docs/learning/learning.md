@@ -1063,9 +1063,78 @@ gh run watch
 gh run list --workflow=ci.yml
 ```
 
+---
 
+## Phase 12 — Sending email (stdlib `net/smtp`) + account bootstrap
 
+Every account so far was born from the demo `seed` command with the shared password `password`.
+That's fine for playing locally, but a real deployment needs a way to get its *first* real
+users — an admin and an HR — without hardcoding a password anywhere. This phase adds outbound
+**email** (the one new piece of tech) and uses it to bootstrap those two accounts on startup:
+generate a random password, email it, and only then create the account.
 
+### Tech: `net/smtp` (Go standard library)
+
+No third-party dependency — the standard library already speaks SMTP. `smtp.SendMail(addr, auth,
+from, to, msg)` opens a connection, optionally authenticates (`smtp.PlainAuth`), and writes an
+RFC 5322 message (CRLF line endings, a header block, a blank line, then the body). The whole
+transport is wrapped behind a one-method interface so the rest of the app never imports
+`net/smtp`:
+
+```go
+type Mailer interface { Send(to, subject, body string) error }
+```
+
+`internal/mailer` has the concrete `*SMTP` implementation; message assembly is split into a pure
+`buildMessage()` so the header/MIME formatting is unit-testable without a live server.
+
+### New concept: send-before-persist for a safe bootstrap
+
+The ordering is the interesting bit. `internal/bootstrap.Run` walks the configured admin/HR
+emails and, for each account that doesn't exist yet:
+
+1. generates a random password (`auth.GeneratePassword`, `crypto/rand` → base64),
+2. **sends the email first**, and
+3. only creates the DB row (with the bcrypt hash) if the send succeeded.
+
+If SMTP is down, startup aborts *before* any account is persisted — so you never end up with a
+user whose password was emailed into the void and is unknown to everyone. Because existence is
+checked per-account, a re-run skips whoever already exists (idempotent), and the SMTP transport
+is built **lazily** — a fully-provisioned database boots with no SMTP config at all.
+
+### What changed in the code (diff)
+
+- **`internal/auth/password.go`** — added `GeneratePassword(bytes)` (crypto/rand → `base64.RawURLEncoding`).
+- **`internal/mailer/`** (new) — `Mailer` interface, `*SMTP` over `net/smtp`, testable `buildMessage`.
+- **`internal/bootstrap/`** (new) — `Run(ctx, Store, Options, newMailer)`; consumer-side `Store`/`Mailer` interfaces; send-before-create; skip-if-exists; lazy mailer.
+- **`internal/config/config.go`** — `BASE_URL`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_HR_EMAIL`, `SMTP_*`.
+- **`internal/cli/serve.go`** — runs `bootstrap.Run` on startup (alongside the existing session cleanup / asset init), aborting on error.
+- **Tests** — `GeneratePassword`, `buildMessage`/`NewSMTP` validation, and a bootstrap suite (create+email, skip existing, no-mailer-when-idle, abort-on-send-failure, abort-on-config-error, skip-blank-email) using fake store + fake mailer.
+
+### Value added
+
+1. **A production-usable first login** — no shared demo password baked into a real deployment.
+2. **Reusable email transport** — the `Mailer` interface is now available for future notifications (approval decisions, etc.).
+3. **Fail-safe provisioning** — the send-before-persist ordering means a mail outage can never strand an account with an unknown password.
+
+### Trade-offs / new pain
+
+- **No local SMTP in dev** — `net/smtp` needs a real relay; there's no console/log fallback (a deliberate "SMTP only" choice), so exercising the *create* path locally means pointing at something like Mailpit/Mailhog or a real provider.
+- **Plaintext email** — credentials travel over whatever transport security the relay offers (STARTTLS on 587); acceptable for a bootstrap password the user should change, but there's no "force password reset on first login" yet.
+- **Bootstrap vs. seed overlap** — two ways to create users now (`seed` demo data vs. startup bootstrap); kept separate on purpose, but it's one more thing to explain.
+
+### Commands cheat-sheet (additions)
+
+```bash
+# Provision the first accounts on startup (needs a reachable SMTP relay):
+export BOOTSTRAP_ADMIN_EMAIL=admin@yourco.com BOOTSTRAP_HR_EMAIL=hr@yourco.com
+export SMTP_HOST=smtp.yourco.com SMTP_PORT=587 SMTP_USERNAME=... SMTP_PASSWORD=... SMTP_FROM=no-reply@yourco.com
+go run . serve      # emails each new account its password, then serves
+
+# Local SMTP sink for testing the create path (example: Mailpit on :1025):
+#   docker run -p 1025:1025 -p 8025:8025 axllent/mailpit
+#   SMTP_HOST=localhost SMTP_PORT=1025 SMTP_FROM=no-reply@test go run . serve
+```
 
 
 

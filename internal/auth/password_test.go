@@ -43,3 +43,31 @@ func TestHashAndCheckPassword(t *testing.T) {
 		t.Error("CheckPassword accepted a malformed hash")
 	}
 }
+
+func TestGeneratePassword(t *testing.T) {
+	p1, err := auth.GeneratePassword(0) // 0 -> default length
+	if err != nil {
+		t.Fatalf("GeneratePassword: %v", err)
+	}
+	if len(p1) < 16 {
+		t.Errorf("default password too short: %d chars", len(p1))
+	}
+
+	// Two calls must not collide (random source).
+	p2, err := auth.GeneratePassword(0)
+	if err != nil {
+		t.Fatalf("GeneratePassword (2): %v", err)
+	}
+	if p1 == p2 {
+		t.Fatal("two generated passwords are identical — not random")
+	}
+
+	// A generated password round-trips through hashing.
+	h, err := auth.HashPassword(p1)
+	if err != nil {
+		t.Fatalf("HashPassword(generated): %v", err)
+	}
+	if !auth.CheckPassword(h, p1) {
+		t.Error("generated password failed to verify against its own hash")
+	}
+}

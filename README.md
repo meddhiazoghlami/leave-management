@@ -1,6 +1,6 @@
 # Leave Management
 
-[![CI](github.com/meddhiazoghlami/leave-management/actions/workflows/ci.yml/badge.svg)](github.com/meddhiazoghlami/leave-management/actions/workflows/ci.yml)
+[![CI](https://github.com/meddhiazoghlami/leave-management/actions/workflows/ci.yml/badge.svg)](https://github.com/meddhiazoghlami/leave-management/actions/workflows/ci.yml)
 
 A small but complete **employee leave-management** web app: employees request leave, managers approve or reject, balances are tracked per leave type, and there's a team calendar and an admin area for leave types, allocations, and public holidays.
 
@@ -35,12 +35,13 @@ It was built as a **progressive learning project** — each phase (0–8) introd
 ## Features
 
 - **Authentication** — email + password login, bcrypt hashing, server-side sessions in Postgres, HttpOnly/SameSite cookie, logout that truly invalidates the session.
-- **Roles** — `employee`, `manager`, `admin`, enforced by middleware plus per-request ownership checks.
+- **Account bootstrap** — on `serve` startup the app auto-provisions an admin and an HR account from `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_HR_EMAIL`, generating a random password and emailing it over SMTP; existing accounts are skipped. See [Bootstrap accounts](#environment-variables).
+- **Roles** — `employee`, `manager`, `admin`, `hr`, enforced by middleware plus per-request ownership checks. `hr` is org-wide and currently mirrors `admin` (approves anyone, sees the full directory, manages leave types/holidays/allocations/settings); kept as its own role so admin-only powers can diverge later.
 - **Dashboard** — your balances per leave type and your recent requests; managers see a pending-approval badge.
 - **Leave requests** — submit via an Alpine modal + HTMX form; working days are computed excluding weekends and public holidays and snapshotted on the request. Cancel your own pending requests.
-- **Approvals** — managers approve/reject pending requests from their direct reports (admins can act on anyone); cards swap out live with a toast.
+- **Approvals** — managers approve/reject pending requests from their direct reports (admins and HR can act on anyone); cards swap out live with a toast.
 - **Balances** — computed as *allocated days − approved working days* for the year (no denormalized counter).
-- **Team** — managers see their reports, admins see everyone; click through to a profile with balances + request history.
+- **Team** — managers see their reports, admins and HR see everyone; click through to a profile with balances + request history.
 - **Calendar** — month grid of approved leave and public holidays; Alpine drives prev/next, HTMX fetches each month.
 - **Admin** — manage leave types, public holidays, and per-employee yearly allocations.
 - **Toasts** — server sets an `HX-Trigger` header, HTMX dispatches an event, an Alpine host renders the toast stack.
@@ -57,7 +58,7 @@ Browser
   ▼
 Gin router (internal/server)
   │  RequireAuth  → resolves session cookie → employee on context
-  │  RequireRole  → manager / admin gates
+  │  RequireRole  → manager / admin / hr gates
   ▼
 Handlers (internal/handlers)         ── one file per feature
   │  validate input, authorize, orchestrate
@@ -87,9 +88,11 @@ internal/
   config/                   Environment → typed Config
   db/                       sqlc-generated queries + models (DO NOT EDIT)
   store/                    pgx pool + domain methods (wraps db.Queries)
-  auth/                     bcrypt, session tokens/cookies, RequireAuth / RequireRole
+  auth/                     bcrypt, random passwords, session tokens/cookies, RequireAuth / RequireRole
   leave/                    Pure WorkingDays() business rule (+ unit test)
   seed/                     Re-runnable demo-data seeder (used by `seed` command)
+  bootstrap/                Ensures admin + HR accounts exist on serve (emails a random password)
+  mailer/                   SMTP transport (net/smtp) behind a small Send interface
   handlers/                 HTTP handlers: auth, dashboard, requests, approvals,
                             employees, calendar, admin (+ router_test.go)
   server/                   Route table + middleware wiring
@@ -135,7 +138,7 @@ erDiagram
         text        name
         text        email UK
         text        password_hash
-        text        role "employee | manager | admin"
+        text        role "employee | manager | admin | hr"
         bigint      manager_id FK "nullable → employees.id"
         timestamptz created_at
     }
@@ -192,6 +195,7 @@ All seeded accounts share the password **`password`**.
 |---|---|---|---|
 | `admin@acme.test` | Dara Admin | **admin** | — |
 | `manager@acme.test` | Mona Manager | **manager** | Dara Admin |
+| `hr@acme.test` | Hana HR | **hr** | Dara Admin |
 | `sam@acme.test` | Sam Employee | employee | Mona Manager |
 | `nadia@acme.test` | Nadia Employee | employee | Mona Manager |
 | `youssef@acme.test` | Youssef Employee | employee | Mona Manager |
@@ -288,9 +292,18 @@ Credentials and ports default to `postgres` / `leave_management` / `8080` and ar
 |---|---|---|
 | `DATABASE_URL` | **required** (no default) | pgx connection string; the app exits if unset |
 | `ADDR` | `:8080` | listen address |
+| `BASE_URL` | `http://localhost:8080` | externally-reachable root; used to build the login link in bootstrap email |
 | `VITE_DEV` | *(unset)* | `true` → serve assets from the Vite dev server (HMR) instead of the built bundle |
+| `AUTO_MIGRATE` | *(unset)* | `true` → apply pending migrations on `serve`/`seed` startup |
+| `BOOTSTRAP_ADMIN_EMAIL` | *(unset)* | email of the admin account to auto-provision on `serve` (blank → skip) |
+| `BOOTSTRAP_HR_EMAIL` | *(unset)* | email of the HR account to auto-provision on `serve` (blank → skip) |
+| `SMTP_HOST` / `SMTP_PORT` | *(unset)* / `587` | SMTP relay for the bootstrap credential email |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | *(unset)* | SMTP auth (omit for an unauthenticated relay) |
+| `SMTP_FROM` | *(unset)* | `From:` address on outbound mail |
 
 Values are read from the environment or a local `.env` file — copy `.env.example` to `.env` to get started. `.env` is auto-loaded (via `godotenv`) and gitignored, so it never lands in version control or the Docker image; real deployments inject the environment directly. Sessions last 7 days (constant in `internal/config`).
+
+**Bootstrap accounts.** On `serve` startup the app ensures an admin and an HR account exist for `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_HR_EMAIL`. For each one that doesn't exist yet it generates a random password, emails it over SMTP, and only then creates the account — so a failed send aborts startup rather than leaving an account whose password nobody knows. Accounts that already exist are left untouched, and the SMTP transport is only required when an account actually needs creating. This is separate from the `seed` command, which loads demo data for local play. See `internal/bootstrap` and `internal/mailer`.
 
 ---
 
@@ -307,16 +320,16 @@ Values are read from the environment or a local `.env` file — copy `.env.examp
 | POST | `/requests/:id/cancel` | authed | cancel own pending request |
 | GET | `/calendar` | authed | month calendar (Alpine shell) |
 | GET | `/calendar/month` | authed | month grid fragment (HTMX) |
-| GET | `/approvals` | manager/admin | pending requests from reports |
-| POST | `/approvals/:id/approve` | manager/admin | approve |
-| POST | `/approvals/:id/reject` | manager/admin | reject |
-| GET | `/employees` | manager/admin | team directory |
-| GET | `/employees/:id` | manager/admin | employee profile |
-| GET | `/admin` | admin | leave types, holidays, allocations |
-| POST | `/admin/leave-types` | admin | add a leave type |
-| POST | `/admin/holidays` | admin | add a holiday |
-| POST | `/admin/holidays/:id/delete` | admin | remove a holiday |
-| POST | `/admin/allocations` | admin | set an employee's yearly allocation |
+| GET | `/approvals` | manager/admin/hr | pending requests from reports |
+| POST | `/approvals/:id/approve` | manager/admin/hr | approve |
+| POST | `/approvals/:id/reject` | manager/admin/hr | reject |
+| GET | `/employees` | manager/admin/hr | team directory |
+| GET | `/employees/:id` | manager/admin/hr | employee profile |
+| GET | `/admin` | admin/hr | leave types, holidays, allocations |
+| POST | `/admin/leave-types` | admin/hr | add a leave type |
+| POST | `/admin/holidays` | admin/hr | add a holiday |
+| POST | `/admin/holidays/:id/delete` | admin/hr | remove a holiday |
+| POST | `/admin/allocations` | admin/hr | set an employee's yearly allocation |
 
 ---
 

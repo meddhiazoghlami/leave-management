@@ -7,13 +7,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Employees lists everyone (admin) or just the current manager's reports.
+// Employees lists everyone (admin/HR) or just the current manager's reports.
 func (h *Handlers) Employees(c *gin.Context) {
 	emp := auth.MustEmployee(c)
 
 	scope := emp.ID // manager: only my reports
-	if emp.Role == auth.RoleAdmin {
-		scope = 0 // admin: everyone
+	if auth.IsAdminLevel(emp.Role) {
+		scope = 0 // admin/HR: everyone
 	}
 	list, err := h.Store.ListEmployees(c.Request.Context(), scope)
 	if err != nil {
@@ -27,7 +27,7 @@ func (h *Handlers) Employees(c *gin.Context) {
 }
 
 // EmployeeProfile shows one employee's balances and requests. Managers may only
-// open their own direct reports; admins may open anyone.
+// open their own direct reports; admins and HR may open anyone.
 func (h *Handlers) EmployeeProfile(c *gin.Context) {
 	viewer := auth.MustEmployee(c)
 	ctx := c.Request.Context()
@@ -44,7 +44,7 @@ func (h *Handlers) EmployeeProfile(c *gin.Context) {
 	}
 
 	isReport := target.ManagerID.Valid && target.ManagerID.Int64 == viewer.ID
-	if viewer.Role != auth.RoleAdmin && !isReport {
+	if !auth.IsAdminLevel(viewer.Role) && !isReport {
 		c.String(403, "not your report")
 		return
 	}

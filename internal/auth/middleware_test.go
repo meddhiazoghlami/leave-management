@@ -104,6 +104,24 @@ func TestRequireAuth_ValidTokenCallsNext(t *testing.T) {
 	}
 }
 
+func TestIsAdminLevel(t *testing.T) {
+	tests := []struct {
+		role string
+		want bool
+	}{
+		{auth.RoleAdmin, true},
+		{auth.RoleHR, true},
+		{auth.RoleManager, false},
+		{auth.RoleEmployee, false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		if got := auth.IsAdminLevel(tc.role); got != tc.want {
+			t.Errorf("IsAdminLevel(%q) = %v, want %v", tc.role, got, tc.want)
+		}
+	}
+}
+
 func TestRequireRole(t *testing.T) {
 	// setEmployee stands in for RequireAuth, seeding the context.
 	setEmployee := func(emp db.Employee, present bool) gin.HandlerFunc {
@@ -124,7 +142,9 @@ func TestRequireRole(t *testing.T) {
 	}{
 		{"admin allowed", true, auth.RoleAdmin, []string{auth.RoleManager, auth.RoleAdmin}, http.StatusOK},
 		{"manager allowed", true, auth.RoleManager, []string{auth.RoleManager, auth.RoleAdmin}, http.StatusOK},
+		{"hr allowed", true, auth.RoleHR, []string{auth.RoleAdmin, auth.RoleHR}, http.StatusOK},
 		{"employee forbidden", true, auth.RoleEmployee, []string{auth.RoleManager, auth.RoleAdmin}, http.StatusForbidden},
+		{"hr forbidden when not allowed", true, auth.RoleHR, []string{auth.RoleManager}, http.StatusForbidden},
 		{"no employee redirects", false, "", []string{auth.RoleAdmin}, http.StatusFound},
 	}
 

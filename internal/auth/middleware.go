@@ -22,7 +22,15 @@ const (
 	RoleEmployee = "employee"
 	RoleManager  = "manager"
 	RoleAdmin    = "admin"
+	RoleHR       = "hr"
 )
+
+// IsAdminLevel reports whether a role has full administrative access. HR
+// currently mirrors admin exactly; the two are kept as distinct roles so
+// admin-only powers can be split back out later without another migration.
+func IsAdminLevel(role string) bool {
+	return role == RoleAdmin || role == RoleHR
+}
 
 // ctxEmployeeKey is where RequireAuth stashes the resolved employee on the Gin
 // context.

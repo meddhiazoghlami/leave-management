@@ -40,8 +40,8 @@ func New(h *handlers.Handlers, s auth.SessionStore) *gin.Engine {
 		app.GET("/calendar/month", h.CalendarMonthFragment)
 	}
 
-	// Manager + admin: approvals and the team directory.
-	mgr := app.Group("/", auth.RequireRole(auth.RoleManager, auth.RoleAdmin))
+	// Manager + admin + HR: approvals and the team directory.
+	mgr := app.Group("/", auth.RequireRole(auth.RoleManager, auth.RoleAdmin, auth.RoleHR))
 	{
 		mgr.GET("/approvals", h.Approvals)
 		mgr.POST("/approvals/:id/approve", h.Approve)
@@ -50,8 +50,8 @@ func New(h *handlers.Handlers, s auth.SessionStore) *gin.Engine {
 		mgr.GET("/employees/:id", h.EmployeeProfile)
 	}
 
-	// Admin only: general settings, leave types, holidays, allocations.
-	adm := app.Group("/admin", auth.RequireRole(auth.RoleAdmin))
+	// Admin + HR: general settings, leave types, holidays, allocations.
+	adm := app.Group("/admin", auth.RequireRole(auth.RoleAdmin, auth.RoleHR))
 	{
 		adm.GET("", h.Admin)
 		adm.POST("/settings", h.SaveSettings)

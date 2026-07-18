@@ -21,8 +21,8 @@ type Nav struct {
 	Active       string // current section: dashboard|requests|approvals|employees|calendar|admin
 }
 
-func (n Nav) IsManager() bool { return n.Role == "manager" || n.Role == "admin" }
-func (n Nav) IsAdmin() bool   { return n.Role == "admin" }
+func (n Nav) IsManager() bool { return n.Role == "manager" || n.Role == "admin" || n.Role == "hr" }
+func (n Nav) IsAdmin() bool   { return n.Role == "admin" || n.Role == "hr" }
 
 // ─────────────────────────── page view models ────────────────────────────
 
