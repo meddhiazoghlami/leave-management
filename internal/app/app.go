@@ -8,11 +8,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
 	"github.com/meddhiazoghlami/leave-management/internal/migrate"
+	"github.com/meddhiazoghlami/leave-management/internal/obs"
 	"github.com/meddhiazoghlami/leave-management/internal/server"
 	"github.com/meddhiazoghlami/leave-management/internal/store"
 
@@ -21,20 +23,27 @@ import (
 )
 
 // App holds the fully-wired application dependencies. The CLI commands read what
-// they need off it (serve → Router + Config; anything DB-only → Store).
+// they need off it (serve → Router + Config + Logger; anything DB-only → Store).
 type App struct {
 	Config config.Config
 	Store  *store.Store
 	Router *gin.Engine
+	Logger *slog.Logger
 }
 
-// ProviderSet is the full dependency graph: config → store → handlers → router,
-// assembled into an App. Wire resolves the order by matching types. The two
-// wire.Bind lines teach Wire that the concrete *store.Store satisfies the
-// consumer-side interfaces handlers.New and server.New now ask for.
+// ProviderSet is the full dependency graph: config → store + observability →
+// handlers → router, assembled into an App. Wire resolves the order by matching
+// types. The two wire.Bind lines teach Wire that the concrete *store.Store
+// satisfies the consumer-side interfaces handlers.New and server.New ask for.
+//
+// obs.NewLogger and obs.InitTracing each return a cleanup, which Wire folds into
+// the injector's returned func alongside the store's — so `defer cleanup()`
+// closes the pool, flushes Loki, and shuts the tracer down in one shot.
 var ProviderSet = wire.NewSet(
 	config.Load,
 	provideStore,
+	obs.NewLogger,
+	obs.InitTracing,
 	wire.Bind(new(handlers.Store), new(*store.Store)),
 	wire.Bind(new(auth.SessionStore), new(*store.Store)),
 	handlers.New,

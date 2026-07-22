@@ -10,6 +10,7 @@ import (
 	"context"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
+	"github.com/meddhiazoghlami/leave-management/internal/obs"
 	"github.com/meddhiazoghlami/leave-management/internal/server"
 	"github.com/meddhiazoghlami/leave-management/internal/store"
 )
@@ -28,13 +29,27 @@ func InitializeApp(ctx context.Context) (*App, func(), error) {
 		return nil, nil, err
 	}
 	handlersHandlers := handlers.New(store, configConfig)
-	engine := server.New(handlersHandlers, store)
+	logger, cleanup2, err := obs.NewLogger(configConfig)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	tracerProvider, cleanup3, err := obs.InitTracing(ctx, configConfig)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	engine := server.New(handlersHandlers, store, configConfig, logger, tracerProvider)
 	app := &App{
 		Config: configConfig,
 		Store:  store,
 		Router: engine,
+		Logger: logger,
 	}
 	return app, func() {
+		cleanup3()
+		cleanup2()
 		cleanup()
 	}, nil
 }

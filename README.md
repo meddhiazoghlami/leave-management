@@ -300,10 +300,50 @@ Credentials and ports default to `postgres` / `leave_management` / `8080` and ar
 | `SMTP_HOST` / `SMTP_PORT` | *(unset)* / `587` | SMTP relay for the bootstrap credential email |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | *(unset)* | SMTP auth (omit for an unauthenticated relay) |
 | `SMTP_FROM` | *(unset)* | `From:` address on outbound mail |
+| `SERVICE_NAME` | `leave-management` | `service.name` label on metrics/traces/logs |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | OTLP/HTTP trace collector (Tempo); blank → tracing off |
+| `LOKI_URL` | *(unset)* | Loki base URL for the log-push handler; blank → logs to stdout only |
 
 Values are read from the environment or a local `.env` file — copy `.env.example` to `.env` to get started. `.env` is auto-loaded (via `godotenv`) and gitignored, so it never lands in version control or the Docker image; real deployments inject the environment directly. Sessions last 7 days (constant in `internal/config`).
 
 **Bootstrap accounts.** On `serve` startup the app ensures an admin and an HR account exist for `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_HR_EMAIL`. For each one that doesn't exist yet it generates a random password, emails it over SMTP, and only then creates the account — so a failed send aborts startup rather than leaving an account whose password nobody knows. Accounts that already exist are left untouched, and the SMTP transport is only required when an account actually needs creating. This is separate from the `seed` command, which loads demo data for local play. See `internal/bootstrap` and `internal/mailer`.
+
+---
+
+## Observability
+
+The app emits the **three pillars** — metrics, logs, and traces — all viewable through **Grafana** as a single UI. The instrumentation lives in `internal/obs` and is wired through the Wire composition root (`internal/app`).
+
+| Pillar | In the app (`internal/obs`) | Backend | Grafana |
+|---|---|---|---|
+| **Metrics** | `prometheus/client_golang`; a Gin middleware records RED series (`http_requests_total`, `http_request_duration_seconds`, `http_requests_in_flight`) at `GET /metrics` | **Prometheus** scrapes the app + **postgres_exporter** | RED dashboard (rate / errors / p50–p99 latency / in-flight / DB) |
+| **Logs** | structured `slog` JSON to stdout; a custom `slog.Handler` batches and pushes to Loki when `LOKI_URL` is set, stamping each line with the active `trace_id` | **Loki** | logs panel + `trace_id` → trace link |
+| **Traces** | OpenTelemetry SDK + `otelgin` middleware exporting OTLP/HTTP | **Tempo** | trace view + trace → logs link |
+
+Everything is optional and gated on config: with `OTEL_EXPORTER_OTLP_ENDPOINT` / `LOKI_URL` unset (a plain `go run`), tracing is a no-op and logs go to stdout only — nothing breaks without the stack running.
+
+### Running it
+
+The monitoring stack is an **opt-in compose profile**, so the normal `docker compose up` path is untouched.
+
+```bash
+make stack-up            # build + start EVERYTHING: db, migrate, app, and monitoring
+# or, if the app is already up:
+make observability-up    # just the monitoring stack (Prometheus, Grafana, Loki, Tempo, exporter)
+make observability-down  # stop it (keeps volumes)
+```
+
+| UI / service | URL | Notes |
+|---|---|---|
+| Grafana | http://localhost:3000 | login `admin` / `admin`; datasources + RED dashboard auto-provisioned |
+| Prometheus | http://localhost:9090 | targets: `leave-management`, `postgres`, `prometheus` |
+| Loki | http://localhost:3100 | queried via Grafana (`{app="leave-management"}`) |
+| Tempo | http://localhost:3200 | OTLP ingest on `:4318`; queried via Grafana |
+| postgres_exporter | http://localhost:9187 | Postgres internals for Prometheus |
+
+Generate some traffic (log in, submit a request), then open Grafana → the **Leave Management — RED + Logs** dashboard, or **Explore** for ad-hoc Loki/Tempo queries. A log line's `trace_id` links straight to its trace, and a trace links back to its logs.
+
+**Running the app locally against the stack:** start only the monitoring stack (`make observability-up`), point the app at the mapped ports (`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`, `LOKI_URL=http://localhost:3100`), and in `deploy/observability/prometheus/prometheus.yml` switch the `leave-management` scrape target to the commented `host.docker.internal:8080` (so Prometheus can reach your host process). Config files live under `deploy/observability/`.
 
 ---
 
@@ -374,6 +414,8 @@ Run `make` (or `make help`) for the full list. Most useful:
 | `make check` | Regenerate, `vet`, and `test` — the pre-commit sweep |
 | `make docker-up` / `docker-down` | Run / stop the full Docker stack |
 | `make docker-seed` | Seed the Dockerized DB (opt-in) |
+| `make stack-up` | Build + start everything incl. the monitoring stack |
+| `make observability-up` / `observability-down` | Start / stop Prometheus + Grafana + Loki + Tempo |
 | `make clean` | Remove `bin/` and `public/build/` |
 
 ---

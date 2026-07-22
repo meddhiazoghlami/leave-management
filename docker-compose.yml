@@ -47,6 +47,13 @@ services:
     environment:
       DATABASE_URL: *dburl
       ADDR: ":8080"
+      # Observability (internal/obs). Empty/unset would disable each exporter;
+      # here we point them at the monitoring stack (started with the
+      # "observability" profile). Harmless if that profile isn't up — traces
+      # and logs just fail to ship and are dropped.
+      SERVICE_NAME: leave-management
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+      LOKI_URL: http://loki:3100
     ports:
       - "${APP_PORT:-8080}:8080"
     restart: unless-stopped
@@ -66,5 +73,83 @@ services:
     command: ["seed"]
     restart: "no"
 
+  # ── Observability stack (opt-in) ──────────────────────────────────────────
+  # Start with:  docker compose --profile observability up -d   (or `make observability-up`)
+  # Everything below only runs under the "observability" profile, so the plain
+  # `docker compose up` app+db path is untouched. Grafana is the single UI.
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # lets it scrape a locally-run app
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.4.1
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./deploy/observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - lokidata:/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.7.1
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/tempo-config.yml"]
+    volumes:
+      - ./deploy/observability/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - tempodata:/var/tempo
+    ports:
+      - "${TEMPO_PORT:-3200}:3200" # query/API
+      - "4318:4318"                # OTLP HTTP (app pushes here)
+    restart: unless-stopped
+
+  postgres_exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    profiles: ["observability"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: *dburl
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  promdata:
+  grafanadata:
+  lokidata:
+  tempodata:

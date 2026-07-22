@@ -210,6 +210,32 @@ The long-term target is a working **leave-management** app (employees request le
 
 ---
 
+## Phase 10 — Observability (Prometheus + Grafana + Loki + Tempo)
+
+**New tech:** Prometheus, Grafana, Loki, Tempo, OpenTelemetry
+**Purpose:** Once the app is real and running, you need to *see* it: how many requests, how fast, what errored, what happened inside a given request. This phase adds the **three pillars of observability** behind **Grafana** as one UI.
+
+> **Roadmap note — a deliberate exception.** Every phase before this added exactly *one* tool. This one bundles four, because the three pillars (metrics / logs / traces) only make sense demonstrated together and Grafana/Prometheus/Loki/Tempo are a tightly-coupled set. The sub-parts below keep the deltas legible.
+
+**What you build:**
+
+- **Metrics** — instrument Gin with `prometheus/client_golang` (a middleware recording the RED signals: request **R**ate, **E**rrors, **D**uration), expose `GET /metrics`, and have **Prometheus** scrape it (plus `postgres_exporter` for DB internals).
+- **Logs** — switch to structured `slog` JSON logging and write a custom `slog.Handler` that batches log lines and pushes them to **Loki**, stamping each with the active `trace_id`.
+- **Traces** — add the **OpenTelemetry** SDK + the `otelgin` middleware, exporting spans over OTLP to **Tempo**.
+- **Grafana** — datasources + a RED dashboard, all provisioned from files; log↔trace correlation both directions.
+
+**Things to learn:**
+
+- The three pillars and what each answers (a metric tells you *that* p99 latency rose; a trace tells you *where* the time went; a log tells you *why*).
+- RED metrics and **label cardinality** — why the `route` label must be the registered pattern (`/approvals/:id`), never the resolved URL.
+- `slog.Handler` internals — `Enabled`/`Handle`/`WithAttrs`/`WithGroup`, and fanning one logger out to multiple sinks.
+- OTLP, spans, context propagation, and why **middleware order matters** (the request logger must sit *inside* the tracing middleware to see the `trace_id`).
+- Provisioning-as-code: Grafana datasources + dashboards from YAML/JSON, so the stack is reproducible.
+
+**Why it matters:** This is the jump from "it works on my machine" to "I can operate it." You stop `println`-debugging and start asking the running system questions. It also cements that logging/metrics/tracing are cross-cutting concerns best isolated in one package (`internal/obs`) and injected, not sprinkled through handlers.
+
+---
+
 ## How to use this document
 
 - **Don't skip phases.** The whole point is to feel the delta each tool adds.

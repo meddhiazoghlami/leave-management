@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -16,7 +17,11 @@ import (
 	"github.com/meddhiazoghlami/leave-management/internal/testsupport"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace/noop"
 )
+
+// testLogger discards output; the obs middleware just needs a non-nil logger.
+func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 // harness is a fully wired app (real router + real Postgres) with a seeded org:
 //
@@ -39,7 +44,7 @@ type harness struct {
 func setup(t *testing.T) *harness {
 	st := testsupport.NewStore(t)
 	cfg := config.Config{SessionTTL: time.Hour}
-	r := server.New(handlers.New(st, cfg), st)
+	r := server.New(handlers.New(st, cfg), st, cfg, testLogger(), noop.NewTracerProvider())
 	h := &harness{t: t, store: st, router: r}
 
 	ctx := context.Background()
@@ -507,7 +512,7 @@ func TestAdminMutations(t *testing.T) {
 func TestUnauthenticatedRedirect(t *testing.T) {
 	// No DB needed: RequireAuth short-circuits before any store call.
 	h := handlers.New(nil, config.Config{})
-	r := server.New(h, nil)
+	r := server.New(h, nil, config.Config{}, testLogger(), noop.NewTracerProvider())
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()

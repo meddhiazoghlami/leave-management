@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/meddhiazoghlami/leave-management/assets"
 	"github.com/meddhiazoghlami/leave-management/internal/app"
@@ -49,7 +48,7 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("load asset manifest (did you run `npm run build` in web/?): %w", err)
 		}
 
-		log.Printf("listening on %s", application.Config.Addr)
+		application.Logger.Info("listening", "addr", application.Config.Addr)
 		return application.Router.Run(application.Config.Addr)
 	},
 }

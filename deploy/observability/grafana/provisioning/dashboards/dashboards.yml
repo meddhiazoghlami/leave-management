@@ -1,0 +1,13 @@
+# Tells Grafana to load dashboard JSON from a folder on disk at startup.
+apiVersion: 1
+
+providers:
+  - name: leave-management
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

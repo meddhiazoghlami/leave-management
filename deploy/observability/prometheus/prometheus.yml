@@ -1,0 +1,27 @@
+# Prometheus scrape config for the leave-management stack.
+# Mounted read-only into the prometheus container (see docker-compose.yml).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus scraping itself.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # The Go app's /metrics endpoint (obs.MetricsHandler).
+  - job_name: leave-management
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8080"]
+    # Running the app locally (`make run`) instead of in compose? Comment the
+    # target above and use this one — Prometheus reaches your host process via
+    # Docker Desktop's special DNS name:
+    # static_configs:
+    #   - targets: ["host.docker.internal:8080"]
+
+  # Postgres internals via postgres_exporter.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres_exporter:9187"]

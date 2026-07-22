@@ -1,0 +1,39 @@
+# Grafana datasource provisioning — the three pillars behind one UI. Loaded on
+# startup from /etc/grafana/provisioning/datasources.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  # Loki. The derived field turns the trace_id in each JSON log line into a
+  # clickable link that opens the matching trace in Tempo.
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        - name: trace_id
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: '${__value.raw}'
+          datasourceUid: tempo
+
+  # Tempo. tracesToLogsV2 wires the other direction: from a span, jump to the
+  # logs that share its trace_id.
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'

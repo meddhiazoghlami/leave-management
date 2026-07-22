@@ -4,20 +4,44 @@
 package server
 
 import (
+	"log/slog"
+
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
+	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
+	"github.com/meddhiazoghlami/leave-management/internal/obs"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
+
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // New builds the Gin engine. The session store is needed by the RequireAuth
 // middleware to resolve session cookies; the handlers already carry their own
-// store. Both are satisfied by the concrete *store.Store at wire time.
-func New(h *handlers.Handlers, s auth.SessionStore) *gin.Engine {
-	r := gin.Default()
+// store. Both are satisfied by the concrete *store.Store at wire time. cfg,
+// logger and tp are the observability collaborators (internal/obs).
+func New(h *handlers.Handlers, s auth.SessionStore, cfg config.Config, logger *slog.Logger, tp trace.TracerProvider) *gin.Engine {
+	// gin.New() (not gin.Default()) so we own the middleware chain. Order is
+	// deliberate:
+	//   1. Recovery — outermost, so a panic anywhere still returns 500.
+	//   2. otelgin — establishes the trace span on the request context. It must
+	//      sit OUTSIDE RequestLogger: otelgin restores the span-less context in a
+	//      deferred call as it unwinds, so any logging done after c.Next() only
+	//      sees the trace_id if it runs *inside* otelgin (unwinds first).
+	//   3. RequestLogger — structured slog line per request, with trace_id.
+	//   4. Metrics — RED counters/histogram.
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware(cfg.ServiceName, otelgin.WithTracerProvider(tp)))
+	r.Use(obs.RequestLogger(logger))
+	r.Use(obs.Middleware())
 
 	// Vite build output (Phase 8). Unused in dev, where assets come from :5173.
 	r.Static("/build", "./public/build")
+
+	// Prometheus scrape endpoint — unauthenticated, like /healthz below.
+	r.GET("/metrics", obs.MetricsHandler())
 
 	// Readiness probe for containers/orchestrators — no session required.
 	r.GET("/healthz", h.Health)

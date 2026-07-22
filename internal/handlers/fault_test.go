@@ -15,6 +15,7 @@ import (
 	"github.com/meddhiazoghlami/leave-management/internal/server"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // boom is the injected failure the fake store returns for selected methods.
@@ -121,7 +122,8 @@ func (f *fakeStore) UpdateSettings(context.Context, string, int32, bool, bool, b
 func (f *fakeStore) Ping(context.Context) error { return f.e("Ping") }
 
 func faultRouter(f *fakeStore) http.Handler {
-	return server.New(handlers.New(f, config.Config{SessionTTL: time.Hour}), f)
+	cfg := config.Config{SessionTTL: time.Hour}
+	return server.New(handlers.New(f, cfg), f, cfg, testLogger(), noop.NewTracerProvider())
 }
 
 var authCookie = &http.Cookie{Name: auth.CookieName, Value: "x"}

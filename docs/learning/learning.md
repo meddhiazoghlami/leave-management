@@ -1136,5 +1136,62 @@ go run . serve      # emails each new account its password, then serves
 #   SMTP_HOST=localhost SMTP_PORT=1025 SMTP_FROM=no-reply@test go run . serve
 ```
 
+## Phase 13 — Observability: the three pillars (Prometheus, Grafana, Loki, Tempo)
+
+Up to now the only signal the running app emitted was Gin's stdout request log and the `/healthz` probe — fine for "is it up?", useless for "why is it slow?" or "what did request X do?". This phase makes the app *observable*: metrics, logs, and traces, all viewable through Grafana. It's the first phase that deliberately breaks the one-tool-per-phase rule (four tools) because the three pillars only make sense demonstrated together.
+
+### Tech definition — what each tool is
+
+- **Metrics / Prometheus** — a time-series database that *pulls* (scrapes) numeric samples from an app's `/metrics` endpoint on an interval. The app exposes counters/gauges/histograms via `prometheus/client_golang`. The canonical shape is **RED**: request **R**ate, **E**rror rate, **D**uration.
+- **Logs / Loki** — a log database built like Prometheus: cheap, indexed only by a small set of *labels* (here `{app,level}`), with the log line itself stored opaque. You query it with LogQL (`{app="leave-management"}`).
+- **Traces / Tempo + OpenTelemetry** — OTel is the vendor-neutral SDK that produces **spans** (a timed unit of work with a `trace_id`); Tempo stores them. `otelgin` middleware creates a server span per request automatically.
+- **Grafana** — the single UI that queries all three and correlates them (a log's `trace_id` → the trace; a trace → its logs).
+
+### What changed in the code (diff)
+
+- **`internal/obs/`** (new package, three files):
+  - `metrics.go` — a Gin middleware recording `http_requests_total`, `http_request_duration_seconds`, `http_requests_in_flight`, plus `MetricsHandler()` wrapping `promhttp`. The `route` label is `c.FullPath()` — the *pattern* (`/approvals/:id`), not the resolved URL — to avoid cardinality blowup.
+  - `tracing.go` — `InitTracing(ctx, cfg)` builds an OTLP/HTTP exporter to Tempo and a batching `TracerProvider`; returns a no-op provider when `OTEL_EXPORTER_OTLP_ENDPOINT` is empty, so a plain `go run` still works.
+  - `logging.go` — `NewLogger(cfg)` returns an `slog.Logger` that always writes JSON to stdout and, when `LOKI_URL` is set, *fans out* to a custom `lokiHandler` that batches lines and POSTs them to Loki's push API. A `traceContext` wrapper stamps every record with the active `trace_id`. Plus `RequestLogger` — a structured per-request middleware replacing Gin's text logger.
+- **`internal/config/config.go`** — three new optional vars: `SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `LOKI_URL` (empty ⇒ that exporter is off).
+- **`internal/server/router.go`** — `gin.Default()` → `gin.New()` with an explicit chain: `Recovery → otelgin → RequestLogger → metrics`; added `GET /metrics`. Signature grew to `New(h, s, cfg, logger, tp)`.
+- **`internal/app/`** — `obs.NewLogger` and `obs.InitTracing` added to the Wire `ProviderSet`; both return cleanups that Wire folds into the app cleanup (so `defer cleanup()` now also flushes Loki and shuts the tracer down). `App` gained a `Logger` field. `wire_gen.go` regenerated.
+- **Infra** — `deploy/observability/` (Prometheus/Loki/Tempo/Grafana configs + a provisioned RED dashboard), an `observability` compose profile with five services, and `make observability-up` / `stack-up` targets.
+- **Tests** — `internal/obs/*_test.go`: metrics middleware uses the route pattern and skips `/metrics`; the Loki handler batches + POSTs (fake server); tracing with no endpoint is a safe no-op.
+
+### The bug I actually hit (middleware order)
+
+First run: traces and logs both flowed, but **`trace_id` never appeared in the logs**. The cause was ordering. `otelgin` puts the span on the request context on the way *in*, but *restores* the span-less context in a `defer` on the way *out*. My `RequestLogger` logged *after* `c.Next()` returned — i.e. after otelgin had already restored — so it saw no span. Fix: register `otelgin` **outside** `RequestLogger`, so the logger unwinds first (while the span context is still live) and otelgin restores afterward. This is the concrete lesson that middleware order is semantics, not style.
+
+### Value added
+
+1. **You can answer real questions.** p95 latency per route, error ratio, requests in flight, DB connection count — on a dashboard, not by grepping.
+2. **Logs ↔ traces click through.** A structured log carries its `trace_id`; Grafana turns it into a link to the exact trace, and vice-versa. This is the payoff of the pillars being one system.
+3. **Zero-cost when off.** Empty `LOKI_URL`/OTLP endpoint ⇒ stdout-only logs and no-op tracing, so `go run` and the test suite are unaffected; the whole stack is an opt-in compose profile.
+4. **One place for a cross-cutting concern.** `internal/obs` owns all instrumentation and is injected via Wire — handlers stay ignorant of it.
+
+### Trade-offs / new pain
+
+- **`/metrics` is unauthenticated** (like `/healthz`). Fine internally; put it behind the network boundary in production.
+- **The app now knows about Loki.** We chose the push-handler approach (over Promtail scraping Docker logs) so logs work identically for a locally-run app *and* in compose — the cost is ~150 lines of batching code the app owns, and a coupling gated on `LOKI_URL`.
+- **Custom `slog.Handler` is fiddly.** `WithAttrs`/`WithGroup` must return clones that share the shipper but keep their own attrs; the render buffer needs a mutex because goroutines log concurrently. Easy to get subtly wrong.
+- **Four moving parts to run.** Grafana/Prometheus/Loki/Tempo each have their own config file and version; the compose profile keeps them out of the default path but it's more surface area.
+- **Cardinality is a footgun.** One careless high-cardinality label (a raw path, a user id) can bloat Prometheus. The `FullPath()` choice is load-bearing.
+
+### Commands cheat-sheet (additions)
+
+```bash
+make stack-up            # build + start db, migrate, app, AND the monitoring stack
+make observability-up    # just the monitoring stack (app already running)
+make observability-down  # stop the monitoring stack (keep volumes)
+
+# UIs: Grafana :3000 (admin/admin) · Prometheus :9090 · Loki :3100 · Tempo :3200
+# Grafana → "Leave Management — RED + Logs" dashboard, or Explore for ad-hoc queries.
+
+# Run the app locally against the stack:
+#   make observability-up
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 LOKI_URL=http://localhost:3100 make run
+#   (and point the prometheus.yml scrape job at host.docker.internal:8080)
+```
 
 

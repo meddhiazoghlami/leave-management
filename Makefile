@@ -151,6 +151,30 @@ docker-down: ## Stop the stack (keeps the db volume)
 docker-clean: ## Stop the stack and delete the db volume
 	docker compose down -v
 
+# ---- Observability (Prometheus, Grafana, Loki, Tempo) ----
+
+.PHONY: observability-up
+observability-up: ## Start ONLY the monitoring backends (pair with a locally-run `go run . serve`)
+	docker compose --profile observability up -d prometheus grafana loki tempo
+	@echo "✔ Grafana  → http://localhost:$${GRAFANA_PORT:-3000} (admin/admin)"
+	@echo "  Prometheus → http://localhost:$${PROMETHEUS_PORT:-9090}"
+	@echo "  Now run the app pointed at them:"
+	@echo "    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 LOKI_URL=http://localhost:3100 make run"
+
+.PHONY: observability-down
+observability-down: ## Stop the monitoring stack (keeps its volumes)
+	docker compose --profile observability down
+
+.PHONY: observability-logs
+observability-logs: ## Tail the monitoring services' logs
+	docker compose logs -f prometheus grafana loki tempo postgres_exporter
+
+.PHONY: stack-up
+stack-up: ## Build + start EVERYTHING (db, migrate, app, and the monitoring stack)
+	docker compose --profile observability up -d --build
+	@echo "✔ App      → http://localhost:$${APP_PORT:-8080}"
+	@echo "  Grafana  → http://localhost:$${GRAFANA_PORT:-3000} (admin/admin)"
+
 # ---- Cleanup ----
 
 .PHONY: clean

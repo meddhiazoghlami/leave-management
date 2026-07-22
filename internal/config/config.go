@@ -43,6 +43,15 @@ type Config struct {
 	SMTPUsername string
 	SMTPPassword string
 	SMTPFrom     string
+
+	// Observability (internal/obs). All optional; an empty value disables that
+	// exporter so a plain `go run` with no monitoring stack still works.
+	//   ServiceName  — service.name label on metrics/traces/logs.
+	//   OTLPEndpoint — base URL of an OTLP/HTTP trace collector (Tempo); empty ⇒ no tracing.
+	//   LokiURL      — base URL of Loki; empty ⇒ logs go to stdout only.
+	ServiceName  string
+	OTLPEndpoint string
+	LokiURL      string
 }
 
 // Load reads configuration from the environment. A .env file in the working
@@ -74,6 +83,9 @@ func Load() (Config, error) {
 		SMTPUsername:        os.Getenv("SMTP_USERNAME"),
 		SMTPPassword:        os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:            os.Getenv("SMTP_FROM"),
+		ServiceName:         env("SERVICE_NAME", "leave-management"),
+		OTLPEndpoint:        os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		LokiURL:             os.Getenv("LOKI_URL"),
 	}, nil
 }
 
