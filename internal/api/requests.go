@@ -133,14 +133,14 @@ func (h *Handlers) CreateRequest(c *gin.Context) {
 	}
 
 	c.JSON(201, gin.H{
-		"id":           created.ID,
+		"id":            created.ID,
 		"leave_type_id": created.LeaveTypeID,
-		"start_date":   created.StartDate.Format(dateLayout),
-		"end_date":     created.EndDate.Format(dateLayout),
-		"working_days": created.WorkingDays,
-		"reason":       created.Reason,
-		"status":       created.Status,
-		"created_at":   created.CreatedAt.Format(time.RFC3339),
+		"start_date":    created.StartDate.Format(dateLayout),
+		"end_date":      created.EndDate.Format(dateLayout),
+		"working_days":  created.WorkingDays,
+		"reason":        created.Reason,
+		"status":        created.Status,
+		"created_at":    created.CreatedAt.Format(time.RFC3339),
 	})
 }
 

@@ -45,7 +45,7 @@ type harness struct {
 	router *gin.Engine
 
 	adminID, managerID, aliceID, bobID, oliviaID int64
-	annualID                                      int64
+	annualID                                     int64
 
 	adminTok, managerTok, aliceTok, oliviaTok string
 }
