@@ -6,6 +6,7 @@ package server
 import (
 	"log/slog"
 
+	"github.com/meddhiazoghlami/leave-management/internal/api"
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
@@ -21,7 +22,7 @@ import (
 // middleware to resolve session cookies; the handlers already carry their own
 // store. Both are satisfied by the concrete *store.Store at wire time. cfg,
 // logger and tp are the observability collaborators (internal/obs).
-func New(h *handlers.Handlers, s auth.SessionStore, cfg config.Config, logger *slog.Logger, tp trace.TracerProvider) *gin.Engine {
+func New(h *handlers.Handlers, apiH *api.Handlers, s auth.SessionStore, cfg config.Config, logger *slog.Logger, tp trace.TracerProvider) *gin.Engine {
 	// gin.New() (not gin.Default()) so we own the middleware chain. Order is
 	// deliberate:
 	//   1. Recovery — outermost, so a panic anywhere still returns 500.
@@ -85,5 +86,56 @@ func New(h *handlers.Handlers, s auth.SessionStore, cfg config.Config, logger *s
 		adm.POST("/allocations", h.SetAllocation)
 	}
 
+	mountAPI(r, apiH, s)
+
 	return r
+}
+
+// mountAPI hangs the JSON REST API off /api/v1. It is a wholly separate tree
+// from the HTML routes above: it authenticates with a bearer token (not the
+// session cookie) and returns JSON on every path, including auth failures. The
+// data layer and business rules are shared — only the transport differs. This is
+// what a mobile client integrates against.
+func mountAPI(r *gin.Engine, h *api.Handlers, s auth.SessionStore) {
+	v1 := r.Group("/api/v1")
+
+	// Public: obtain a token.
+	v1.POST("/auth/login", h.Login)
+
+	// Everything below requires a valid bearer token.
+	auth1 := v1.Group("/", auth.RequireAPIAuth(s))
+	{
+		auth1.POST("/auth/logout", h.Logout)
+
+		auth1.GET("/me", h.Me)
+		auth1.GET("/me/balances", h.MyBalances)
+		auth1.GET("/leave-types", h.LeaveTypes)
+		auth1.GET("/calendar", h.Calendar)
+
+		auth1.GET("/requests", h.MyRequests)
+		auth1.POST("/requests", h.CreateRequest)
+		auth1.POST("/requests/:id/cancel", h.CancelRequest)
+	}
+
+	// Manager + admin + HR: approvals and the team directory.
+	mgr := auth1.Group("/", auth.RequireAPIRole(auth.RoleManager, auth.RoleAdmin, auth.RoleHR))
+	{
+		mgr.GET("/approvals", h.Approvals)
+		mgr.POST("/approvals/:id/approve", h.Approve)
+		mgr.POST("/approvals/:id/reject", h.Reject)
+		mgr.GET("/employees", h.Employees)
+		mgr.GET("/employees/:id", h.EmployeeProfile)
+	}
+
+	// Admin + HR: settings, leave types, holidays, allocations.
+	adm := auth1.Group("/admin", auth.RequireAPIRole(auth.RoleAdmin, auth.RoleHR))
+	{
+		adm.GET("/settings", h.Settings)
+		adm.PUT("/settings", h.UpdateSettings)
+		adm.POST("/leave-types", h.CreateLeaveType)
+		adm.GET("/holidays", h.ListHolidays)
+		adm.POST("/holidays", h.CreateHoliday)
+		adm.DELETE("/holidays/:id", h.DeleteHoliday)
+		adm.POST("/allocations", h.SetAllocation)
+	}
 }

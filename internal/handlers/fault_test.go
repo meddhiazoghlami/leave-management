@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meddhiazoghlami/leave-management/internal/api"
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/db"
@@ -123,7 +124,7 @@ func (f *fakeStore) Ping(context.Context) error { return f.e("Ping") }
 
 func faultRouter(f *fakeStore) http.Handler {
 	cfg := config.Config{SessionTTL: time.Hour}
-	return server.New(handlers.New(f, cfg), f, cfg, testLogger(), noop.NewTracerProvider())
+	return server.New(handlers.New(f, cfg), api.New(f, cfg), f, cfg, testLogger(), noop.NewTracerProvider())
 }
 
 var authCookie = &http.Cookie{Name: auth.CookieName, Value: "x"}

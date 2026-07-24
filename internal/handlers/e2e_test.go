@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meddhiazoghlami/leave-management/internal/api"
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
@@ -44,7 +45,7 @@ type harness struct {
 func setup(t *testing.T) *harness {
 	st := testsupport.NewStore(t)
 	cfg := config.Config{SessionTTL: time.Hour}
-	r := server.New(handlers.New(st, cfg), st, cfg, testLogger(), noop.NewTracerProvider())
+	r := server.New(handlers.New(st, cfg), api.New(st, cfg), st, cfg, testLogger(), noop.NewTracerProvider())
 	h := &harness{t: t, store: st, router: r}
 
 	ctx := context.Background()
@@ -512,7 +513,7 @@ func TestAdminMutations(t *testing.T) {
 func TestUnauthenticatedRedirect(t *testing.T) {
 	// No DB needed: RequireAuth short-circuits before any store call.
 	h := handlers.New(nil, config.Config{})
-	r := server.New(h, nil, config.Config{}, testLogger(), noop.NewTracerProvider())
+	r := server.New(h, nil, nil, config.Config{}, testLogger(), noop.NewTracerProvider())
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()

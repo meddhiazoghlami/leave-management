@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 
+	"github.com/meddhiazoghlami/leave-management/internal/api"
 	"github.com/meddhiazoghlami/leave-management/internal/auth"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
@@ -45,8 +46,10 @@ var ProviderSet = wire.NewSet(
 	obs.NewLogger,
 	obs.InitTracing,
 	wire.Bind(new(handlers.Store), new(*store.Store)),
+	wire.Bind(new(api.Store), new(*store.Store)),
 	wire.Bind(new(auth.SessionStore), new(*store.Store)),
 	handlers.New,
+	api.New,
 	server.New,
 	wire.Struct(new(App), "*"),
 )

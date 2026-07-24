@@ -1195,3 +1195,53 @@ make observability-down  # stop the monitoring stack (keep volumes)
 ```
 
 
+## Phase 14 — A JSON REST API for mobile (bearer tokens, DTOs, a second transport)
+
+Every prior phase served one thing: HTML. templ rendered pages, HTMX swapped fragments, the whole app spoke `text/html`. This phase adds a *second transport* over the exact same app: a versioned JSON REST API at `/api/v1` that a mobile client integrates against. The interesting part isn't a new library — it's the discipline of separating **transport** from **domain**, and discovering how much the existing design already had that separation baked in.
+
+### Tech definition — what's actually new
+
+- **REST/JSON API** — resource-oriented endpoints returning JSON with REST status codes (201 on create, 204 on no-content, 401/403/404 for auth/authz/missing), instead of HTML + redirects + `HX-Trigger` toasts.
+- **Bearer-token auth** — a mobile client can't hold an `HttpOnly` cookie, so it sends the session token in an `Authorization: Bearer <token>` header. Crucially, this is the **same** Postgres-backed session row the web login issues — the browser and the phone are indistinguishable to the DB; only how the token is *carried* differs.
+- **DTOs (Data Transfer Objects)** — hand-written response structs with `json` tags, plus a mapper per type. They exist because the sqlc row structs have no json tags and `db.Employee` carries a `PasswordHash` and `pgtype.*` columns that serialise badly. The DTO is the single place the wire shape is defined.
+
+### What changed in the code (diff)
+
+- **`internal/api/`** (new package): `api.go` (the consumer-side `Store` interface + `Handlers` + the `{"error": ...}` `fail` helper), `dto.go` (every response DTO + its mapper), and one file per resource — `auth.go`, `requests.go`, `approvals.go`, `employees.go`, `admin.go`. No templ, no HTMX; just bind JSON → call store/`internal/leave` → marshal a DTO.
+- **`internal/auth/api.go`** (new): `BearerToken(c)` parses the header; `RequireAPIAuth` / `RequireAPIRole` are the JSON counterparts to `RequireAuth`/`RequireRole` — they return a 401/403 JSON body instead of redirecting to `/login`, and store the employee under the *same* context key, so `MustEmployee(c)` works unchanged in API handlers.
+- **`internal/server/router.go`** — added `mountAPI(r, apiH, s)`: a wholly separate `/api/v1` route tree mirroring the HTML role groups (public → bearer → manager → admin). `server.New` grew an `*api.Handlers` parameter.
+- **`internal/app/`** — Wire `ProviderSet` gained `api.New` and `wire.Bind(new(api.Store), new(*store.Store))`; `wire_gen.go` regenerated. The concrete `*store.Store` satisfies *both* `handlers.Store` and `api.Store` with no new methods.
+- **Tests** — `internal/api/e2e_test.go`: the same seeded org as the HTML suite, driven over JSON + bearer tokens — login/`/me`, auth failures, the request create→list→cancel lifecycle, approvals, role gates, and admin mutations. The two `handlers` tests that call `server.New` were updated for the new signature.
+
+### The thing I noticed — the domain didn't move
+
+Adding a whole second API required *zero* changes to `internal/store`, `internal/leave`, or the SQL. Working-day math, balance scoping, and the approve/reject authorization rules were already pure functions or store calls, so the API handlers just *call the same code* the web handlers do — `CreateRequest` recomputes working days with `leave.WorkingDays` exactly like the HTML path. The API is a thin transport shell. That's the payoff of having kept business rules out of the handlers in Phase 9: the second consumer was cheap because the first one never owned the logic.
+
+### Value added
+
+1. **Mobile (or any client) can integrate** without scraping HTML — a clean JSON contract with a uniform error envelope.
+2. **One auth system, two carriers.** Sessions live in Postgres; the cookie and the bearer token are two ways to present the same token. Logout revokes it for both.
+3. **DTOs pin the contract.** Responses can never accidentally leak a password hash or a `pgtype` wart, because the mapper is the only path from row to wire.
+4. **The split validated the architecture.** Being able to bolt on a transport with no domain edits is the concrete evidence that the layering works.
+
+### Trade-offs / new pain
+
+- **Two handler trees to keep in sync.** A new rule (say, a new guard on requests) now has to land in *both* `handlers` and `api`, or the web and mobile apps diverge. The shared store/`leave` layer limits the drift, but the transport-level validation is duplicated.
+- **Consumer-side `Store` interface #2.** `api.Store` is a second hand-maintained interface over the same concrete store; add a query and you may touch both it and `handlers.Store`.
+- **No token refresh / rotation.** A bearer token lives as long as the session TTL, then the client must log in again — fine for a learning project, thin for a real mobile app (no refresh tokens, no per-device revocation UI).
+- **DTO boilerplate.** Every response type is a struct + a mapper written by hand. Explicit and leak-proof, but verbose; a codegen step could remove it at the cost of another tool.
+
+### Commands cheat-sheet (additions)
+
+```bash
+go test ./internal/api/    # DB-backed e2e of the JSON API (skips without Docker)
+
+# Log in, capture the bearer token, call an authenticated endpoint:
+TOKEN=$(curl -s localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"..."}' | jq -r .token)
+curl -s localhost:8080/api/v1/me          -H "Authorization: Bearer $TOKEN"
+curl -s localhost:8080/api/v1/me/balances -H "Authorization: Bearer $TOKEN"
+```
+
+

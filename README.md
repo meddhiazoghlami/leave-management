@@ -6,7 +6,9 @@ A small but complete **employee leave-management** web app: employees request le
 
 It was built as a **progressive learning project** — each phase (0–8) introduced exactly one piece of the stack on "hello dzovi" demos, and **Phase 9** assembles all of it into this real app. See [`docs/learning/phases.md`](docs/learning/phases.md) for the roadmap and [`docs/learning/learning.md`](docs/learning/learning.md) for the per-phase write-ups.
 
-> **Server-rendered, no SPA.** HTML comes from the server (templ); HTMX swaps fragments for server-driven interactions; Alpine handles client-only UI state (modals, toasts, calendar navigation). There is no JSON API and no client-side framework.
+> **Server-rendered, no SPA.** HTML comes from the server (templ); HTMX swaps fragments for server-driven interactions; Alpine handles client-only UI state (modals, toasts, calendar navigation). There is no client-side framework.
+>
+> **Also a JSON REST API.** Alongside the HTML app, a versioned JSON API is mounted at `/api/v1` for mobile (or any non-browser) clients. It shares the data layer and business rules with the web handlers but authenticates with a bearer token instead of the session cookie. See [API routes](#json-rest-api-apiv1).
 
 ---
 
@@ -45,6 +47,7 @@ It was built as a **progressive learning project** — each phase (0–8) introd
 - **Calendar** — month grid of approved leave and public holidays; Alpine drives prev/next, HTMX fetches each month.
 - **Admin** — manage leave types, public holidays, and per-employee yearly allocations.
 - **Toasts** — server sets an `HX-Trigger` header, HTMX dispatches an event, an Alpine host renders the toast stack.
+- **JSON REST API** — a versioned `/api/v1` surface for mobile clients: bearer-token auth, DTO responses, a uniform `{"error": "..."}` envelope, and the same roles/ownership rules as the web app. See [API routes](#json-rest-api-apiv1).
 
 ---
 
@@ -371,6 +374,43 @@ Generate some traffic (log in, submit a request), then open Grafana → the **Le
 | POST | `/admin/holidays/:id/delete` | admin/hr | remove a holiday |
 | POST | `/admin/allocations` | admin/hr | set an employee's yearly allocation |
 
+### JSON REST API (`/api/v1`)
+
+A wholly separate route tree for mobile/non-browser clients. It authenticates with an `Authorization: Bearer <token>` header (not the session cookie), returns JSON on every path — including auth failures, as `{"error": "..."}` — and shares the data layer and business rules with the HTML handlers above. The bearer token is the *same* Postgres-backed session the web app issues: a mobile login and a browser login are indistinguishable to the database.
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | public | authenticate, returns `{token, expires_at, user}` |
+| POST | `/api/v1/auth/logout` | bearer | revoke the caller's token |
+| GET | `/api/v1/me` | bearer | caller's own profile |
+| GET | `/api/v1/me/balances` | bearer | caller's allocation/usage/remaining per leave type |
+| GET | `/api/v1/leave-types` | bearer | configurable leave types (to populate a submit form) |
+| GET | `/api/v1/calendar` | bearer | approved leave in `?start=&end=` (defaults to current month) |
+| GET | `/api/v1/requests` | bearer | own requests, newest first |
+| POST | `/api/v1/requests` | bearer | submit a request (JSON body, dates `YYYY-MM-DD`) |
+| POST | `/api/v1/requests/:id/cancel` | bearer | cancel own pending request |
+| GET | `/api/v1/approvals` | manager/admin/hr | pending requests from reports |
+| POST | `/api/v1/approvals/:id/approve` | manager/admin/hr | approve |
+| POST | `/api/v1/approvals/:id/reject` | manager/admin/hr | reject |
+| GET | `/api/v1/employees` | manager/admin/hr | team directory |
+| GET | `/api/v1/employees/:id` | manager/admin/hr | employee profile (bundles balances + requests) |
+| GET | `/api/v1/admin/settings` | admin/hr | company settings |
+| PUT | `/api/v1/admin/settings` | admin/hr | replace company settings |
+| POST | `/api/v1/admin/leave-types` | admin/hr | add a leave type |
+| GET | `/api/v1/admin/holidays` | admin/hr | list public holidays |
+| POST | `/api/v1/admin/holidays` | admin/hr | add a holiday |
+| DELETE | `/api/v1/admin/holidays/:id` | admin/hr | remove a holiday |
+| POST | `/api/v1/admin/allocations` | admin/hr | set an employee's yearly allocation |
+
+```bash
+# Log in, capture the token, and call an authenticated endpoint:
+TOKEN=$(curl -s localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"..."}' | jq -r .token)
+
+curl -s localhost:8080/api/v1/me -H "Authorization: Bearer $TOKEN"
+```
+
 ---
 
 ## Testing
@@ -382,6 +422,7 @@ make test-integration  # all tests incl. the DB-gated store test
 
 - `internal/leave` — pure unit test of the working-days calculation (weekends + holidays).
 - `internal/handlers` — no-DB router test: an unauthenticated request redirects to `/login`.
+- `internal/api` — DB-backed e2e test of the JSON API: login → bearer token → request lifecycle, approvals, role gates, and admin mutations.
 - `internal/store` — sqlc integration test (create → approve → balances), **skipped** unless `TEST_DATABASE_URL` is set (which `make test-integration` does).
 
 ---

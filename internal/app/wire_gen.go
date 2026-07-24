@@ -8,6 +8,7 @@ package app
 
 import (
 	"context"
+	"github.com/meddhiazoghlami/leave-management/internal/api"
 	"github.com/meddhiazoghlami/leave-management/internal/config"
 	"github.com/meddhiazoghlami/leave-management/internal/handlers"
 	"github.com/meddhiazoghlami/leave-management/internal/obs"
@@ -29,6 +30,7 @@ func InitializeApp(ctx context.Context) (*App, func(), error) {
 		return nil, nil, err
 	}
 	handlersHandlers := handlers.New(store, configConfig)
+	apiHandlers := api.New(store, configConfig)
 	logger, cleanup2, err := obs.NewLogger(configConfig)
 	if err != nil {
 		cleanup()
@@ -40,7 +42,7 @@ func InitializeApp(ctx context.Context) (*App, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
-	engine := server.New(handlersHandlers, store, configConfig, logger, tracerProvider)
+	engine := server.New(handlersHandlers, apiHandlers, store, configConfig, logger, tracerProvider)
 	app := &App{
 		Config: configConfig,
 		Store:  store,
